@@ -17,6 +17,16 @@ from chaos_bot.scheduler import run_once
 
 app = Flask(__name__)
 
+
+@app.after_request
+def add_no_cache_headers(response):
+    """Prevent browser caching of HTML pages."""
+    if response.content_type and 'text/html' in response.content_type:
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
 # Shared state — set by cli.py or external caller before app.run()
 _state = {
     "status": "idle",      # idle | hopping | attacking | cooldown
@@ -235,7 +245,7 @@ def api_targets():
             "id": vlan.get("id"),
             "name": vlan.get("name", ""),
             "gateway": vlan.get("gateway", ""),
-            "targets": vlan.get("targets", []),
+            "targets": vlan.get("targets") or [],
         })
     return jsonify({"vlans": vlan_list})
 

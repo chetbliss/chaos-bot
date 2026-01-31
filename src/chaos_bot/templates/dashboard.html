@@ -70,6 +70,11 @@
 </div>
 
 <div class="card">
+    <h2>Live Activity</h2>
+    <div class="log-viewer" id="activity-log" style="max-height: 200px; font-size: 0.75rem;"></div>
+</div>
+
+<div class="card">
     <h2>Suricata Alerts <a href="https://evebox.lab.chettv.com" target="_blank" style="font-size: 0.75rem; font-weight: normal; text-transform: none; letter-spacing: 0;">(Open EveBox)</a></h2>
     <div class="controls">
         <button class="btn" onclick="loadAlerts('3600s')">Last Hour</button>
@@ -77,7 +82,7 @@
         <button class="btn" onclick="loadAlerts('604800s')">Last 7d</button>
     </div>
     <div id="alert-summary" style="margin: 0.75rem 0;">
-        <span style="color: var(--text-muted);">Click a time range to load alerts</span>
+        <span style="color: var(--text-muted);">Loading alerts...</span>
     </div>
     <table id="alert-table" style="display: none;">
         <thead>
@@ -228,7 +233,8 @@ function loadTargets() {
                 var list = document.createElement('div');
                 list.className = 'target-list';
 
-                if (vlan.targets.length === 0 && !vlan.gateway) {
+                var targets = vlan.targets || [];
+                if (targets.length === 0 && !vlan.gateway) {
                     var empty = document.createElement('div');
                     empty.style.color = 'var(--text-muted)';
                     empty.style.padding = '0.25rem 0';
@@ -248,7 +254,7 @@ function loadTargets() {
                     };
                     list.appendChild(checkAll);
 
-                    var allTargets = vlan.targets.slice();
+                    var allTargets = targets.slice();
                     if (vlan.gateway) allTargets.unshift(vlan.gateway + ' (gw)');
                     allTargets.forEach(function(target) {
                         var ip = target.replace(' (gw)', '');
@@ -353,8 +359,32 @@ function loadAlerts(timeRange) {
         });
 }
 
+// Live activity SSE stream on dashboard
+var activityLog = document.getElementById('activity-log');
+var activitySource = new EventSource('/api/v1/logs');
+activitySource.onmessage = function(e) {
+    try {
+        var entry = JSON.parse(e.data);
+        var line = '[' + entry.timestamp.substring(11, 19) + '] ' + entry.level + ' ' + entry.module + ': ' + entry.message;
+        activityLog.textContent += line + '\n';
+        // Keep last 100 lines
+        var lines = activityLog.textContent.split('\n');
+        if (lines.length > 100) {
+            activityLog.textContent = lines.slice(-100).join('\n');
+        }
+        activityLog.scrollTop = activityLog.scrollHeight;
+    } catch(ex) {
+        activityLog.textContent += e.data + '\n';
+        activityLog.scrollTop = activityLog.scrollHeight;
+    }
+};
+activitySource.onerror = function() {
+    activityLog.textContent += '[connection lost - reconnecting...]\n';
+};
+
 loadModules();
 loadTargets();
+loadAlerts('86400s');
 refreshStatus();
 setInterval(refreshStatus, 3000);
 </script>
