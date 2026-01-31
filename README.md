@@ -55,10 +55,15 @@ chaos-bot config --show
 
 ## C2 Web UI
 
-Served on management NIC (default `10.10.10.4:8880`). Provides:
+Served on management NIC (default `10.10.10.4:8880`). Proxied via Caddy at `https://chaosbot.lab.chettv.com`.
 
 - **Dashboard** — current state (idle/attacking/hopping/cooldown), VLAN, source IP, cycle summaries
-- **Control** — start/stop hopper, trigger single hop, select modules
+- **Module Picker** — checkboxes to select which modules to run
+- **VLAN Picker** — select VLANs for daemon hopping
+- **Target Picker** — select targets grouped by VLAN (expand/collapse, select all)
+- **Manual Trigger** — run selected modules against selected targets without hopping
+- **Suricata Alerts** — live alert counts from EveBox API (last hour / 24h / 7d), link to EveBox UI
+- **Controls** — start/stop hopper, trigger single hop (state-aware: buttons disabled when busy)
 - **History** — lease history with VLAN/IP/duration filtering
 - **Config** — view and reload config without restart
 - **Logs** — live JSON log stream via SSE
@@ -68,13 +73,29 @@ Served on management NIC (default `10.10.10.4:8880`). Provides:
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/v1/status` | Current state, VLAN, IP, module results |
-| POST | `/api/v1/start` | Start daemon loop |
+| POST | `/api/v1/start` | Start daemon loop (accepts optional `{"vlans": [30,40]}` for VLAN filtering) |
 | POST | `/api/v1/stop` | Graceful stop |
 | POST | `/api/v1/hop` | Trigger single hop cycle |
+| GET | `/api/v1/modules` | Available modules and enabled state |
+| GET | `/api/v1/targets` | All targets grouped by VLAN |
+| POST | `/api/v1/trigger` | Run selected modules on selected targets (body: `{"modules": [...], "targets": [...]}`) |
+| GET | `/api/v1/alerts` | Proxy Suricata alerts from EveBox (query param: `time_range=86400s`) |
 | GET | `/api/v1/history` | Lease history JSON |
 | GET | `/api/v1/config` | Current config |
 | PUT | `/api/v1/config` | Update and reload config |
 | GET | `/api/v1/logs` | SSE log stream |
+
+### State Validation
+
+The API enforces state transitions:
+
+| Endpoint | Rejected when |
+|---|---|
+| `POST /api/v1/start` | State is not `idle` or `cooldown` (409) |
+| `POST /api/v1/hop` | State is `attacking` or `hopping` (409) |
+| `POST /api/v1/trigger` | State is `attacking` or `hopping` (409) |
+| `PUT /api/v1/config` | State is `attacking` (409) |
+| `POST /api/v1/stop` | Always allowed |
 
 ## Metrics
 
@@ -82,7 +103,7 @@ Prometheus metrics exposed on port 9100 (management NIC). Scrape target: `http:/
 
 ## Config
 
-See `config.yml` for the default lab configuration. Key sections: `vlans`, `modules`, `schedule`, `credentials`, `notifications`, `metrics`, `web`.
+See `config.yml` for the default lab configuration. Key sections: `vlans`, `modules`, `schedule`, `credentials`, `notifications`, `metrics`, `web`, `evebox`.
 
 ## VLAN Targets
 
@@ -98,4 +119,22 @@ VLANs 20 (Corosync) and 21 (Replication) are excluded — never target cluster t
 
 ## Deployment
 
-Deployed via Ansible from the [chaosbot-stack](https://github.com/chetbliss/chaosbot-stack) repo. See that repo for Jenkins pipeline and Ansible roles.
+Deployed via Ansible from the `chaosbot-stack` deployment in the homelab-migration repo. Jenkins job `chaosbot-stack` with `ACTION=setup` runs the playbook.
+
+The Ansible role clones this repo to `/home/cbliss/chaos-bot`, creates a venv, installs the package, templates the config from inventory vars, and manages the systemd service. Code changes are auto-deployed: the git clone task and pip install both trigger a service restart via handler.
+
+## Tests
+
+```bash
+source .venv/bin/activate
+pytest tests/ -v
+```
+
+27 tests covering config loading, lease DB, module dry-run, and web API endpoints.
+
+## Version History
+
+| Version | Date | Changes |
+|---|---|---|
+| 0.1.1 | 2026-01-31 | C2 dashboard: module/VLAN/target pickers, manual trigger, Suricata alerts (EveBox), state validation, VLAN filter for daemon |
+| 0.1.0 | 2026-01-31 | Initial release: core framework, 4 modules, VLAN hopper, web UI, metrics, notifications, lease history |
