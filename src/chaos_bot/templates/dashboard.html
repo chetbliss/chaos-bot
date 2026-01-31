@@ -82,7 +82,7 @@
         <button class="btn" onclick="loadAlerts('604800s')">Last 7d</button>
     </div>
     <div id="alert-summary" style="margin: 0.75rem 0;">
-        <span style="color: var(--text-muted);">Loading alerts...</span>
+        <span style="color: var(--text-muted);">Click a time range to load alerts</span>
     </div>
     <table id="alert-table" style="display: none;">
         <thead>
@@ -324,7 +324,11 @@ function loadAlerts(timeRange) {
         .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
         .then(function(res) {
             if (!res.ok || res.data.error) {
-                summary.innerHTML = '<span style="color: var(--red);">' + (res.data.error || 'Failed to load') + '</span>';
+                var errMsg = res.data.error || 'Failed to load';
+                if (errMsg.indexOf('unreachable') !== -1 || errMsg.indexOf('timed out') !== -1) {
+                    errMsg = 'EveBox unavailable — check that port 5636 is accessible from management VLAN';
+                }
+                summary.innerHTML = '<span style="color: var(--yellow);">' + errMsg + '</span>';
                 table.style.display = 'none';
                 return;
             }
@@ -384,7 +388,6 @@ activitySource.onerror = function() {
 
 loadModules();
 loadTargets();
-loadAlerts('86400s');
 refreshStatus();
 setInterval(refreshStatus, 3000);
 </script>
