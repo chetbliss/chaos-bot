@@ -28,11 +28,11 @@ vlans:
     gateway: 10.32.32.1
     targets: []
   - id: 40
-    name: vlan40
+    name: honeypot
     gateway: 10.40.40.1
     targets: []
   - id: 50
-    name: vlan50
+    name: untrusted
     gateway: 10.50.50.1
     targets: []
 
