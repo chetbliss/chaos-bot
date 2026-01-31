@@ -143,6 +143,59 @@ select, input[type="text"] {
     font-size: 0.85rem;
 }
 
+/* Picker cards */
+.picker-card { max-height: 400px; overflow-y: auto; }
+
+.module-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.vlan-group {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+}
+
+.vlan-group-header {
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 0.85rem;
+    background: rgba(88, 166, 255, 0.05);
+    border-bottom: 1px solid var(--border);
+}
+.vlan-group-header:hover { background: rgba(88, 166, 255, 0.1); }
+
+.target-list { padding: 0.5rem 0.75rem; }
+
+.check-all {
+    display: inline-block;
+    font-size: 0.75rem;
+    color: var(--accent);
+    margin-bottom: 0.25rem;
+}
+
+.btn-trigger {
+    background: var(--orange);
+    color: #fff;
+    border-color: var(--orange);
+}
+.btn-trigger:hover { opacity: 0.9; }
+
+.btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.feedback {
+    font-size: 0.85rem;
+    min-height: 1.2em;
+    margin-top: 0.5rem;
+}
+
 @media (max-width: 768px) {
     .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
 }

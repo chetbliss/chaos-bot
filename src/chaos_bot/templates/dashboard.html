@@ -33,10 +33,58 @@
 <div class="card">
     <h2>Controls</h2>
     <div class="controls">
-        <button class="btn btn-primary" onclick="apiPost('/api/v1/start')">Start Daemon</button>
-        <button class="btn btn-danger" onclick="apiPost('/api/v1/stop')">Stop</button>
-        <button class="btn" onclick="apiPost('/api/v1/hop')">Single Hop</button>
+        <button class="btn btn-primary" data-action="start" onclick="startDaemon()">Start Daemon</button>
+        <button class="btn btn-danger" data-action="stop" onclick="apiPost('/api/v1/stop')">Stop</button>
+        <button class="btn" data-action="hop" onclick="apiPost('/api/v1/hop')">Single Hop</button>
     </div>
+</div>
+
+<div class="grid grid-2">
+    <div class="card picker-card">
+        <h2>Module Picker</h2>
+        <div class="module-list" id="module-list">
+            <div style="color: var(--text-muted);">Loading...</div>
+        </div>
+    </div>
+    <div class="card picker-card">
+        <h2>VLAN Picker</h2>
+        <div class="module-list" id="vlan-picker">
+            <div style="color: var(--text-muted);">Loading...</div>
+        </div>
+    </div>
+</div>
+
+<div class="card picker-card">
+    <h2>Target Picker</h2>
+    <div id="target-picker">
+        <div style="color: var(--text-muted);">Loading...</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Manual Trigger</h2>
+    <div class="controls">
+        <button class="btn btn-trigger" id="btn-trigger" onclick="triggerModules()">Run Selected Modules on Selected Targets</button>
+    </div>
+    <div class="feedback" id="trigger-feedback"></div>
+</div>
+
+<div class="card">
+    <h2>Suricata Alerts <a href="https://evebox.lab.chettv.com" target="_blank" style="font-size: 0.75rem; font-weight: normal; text-transform: none; letter-spacing: 0;">(Open EveBox)</a></h2>
+    <div class="controls">
+        <button class="btn" onclick="loadAlerts('3600s')">Last Hour</button>
+        <button class="btn" onclick="loadAlerts('86400s')">Last 24h</button>
+        <button class="btn" onclick="loadAlerts('604800s')">Last 7d</button>
+    </div>
+    <div id="alert-summary" style="margin: 0.75rem 0;">
+        <span style="color: var(--text-muted);">Click a time range to load alerts</span>
+    </div>
+    <table id="alert-table" style="display: none;">
+        <thead>
+            <tr><th>Signature</th><th>Src</th><th>Dst</th><th>Count</th><th>Latest</th></tr>
+        </thead>
+        <tbody id="alert-tbody"></tbody>
+    </table>
 </div>
 
 <div class="card">
@@ -80,17 +128,233 @@ function refreshStatus() {
             else if (data.status === 'hopping') el.style.color = '#d29922';
             else if (data.status === 'cooldown') el.style.color = '#3fb950';
             else el.style.color = '#8b949e';
+
+            // State-aware button disabling
+            var btnStart = document.querySelector('[data-action="start"]');
+            var btnStop = document.querySelector('[data-action="stop"]');
+            var btnHop = document.querySelector('[data-action="hop"]');
+            var btnTrigger = document.getElementById('btn-trigger');
+            var busy = (data.status === 'attacking' || data.status === 'hopping');
+            if (btnStart) btnStart.disabled = busy;
+            if (btnStop) btnStop.disabled = (data.status === 'idle');
+            if (btnHop) btnHop.disabled = busy;
+            if (btnTrigger) btnTrigger.disabled = busy;
         })
         .catch(() => {});
 }
 
-function apiPost(url) {
-    fetch(url, {method: 'POST'})
+function apiPost(url, body) {
+    var opts = {method: 'POST', headers: {'Content-Type': 'application/json'}};
+    if (body) opts.body = JSON.stringify(body);
+    fetch(url, opts)
         .then(r => r.json())
         .then(data => { console.log(data); refreshStatus(); })
         .catch(err => console.error(err));
 }
 
+function startDaemon() {
+    var vlans = getSelectedVlans();
+    apiPost('/api/v1/start', vlans.length > 0 ? {vlans: vlans} : null);
+}
+
+function getSelectedVlans() {
+    var checked = document.querySelectorAll('#vlan-picker input[type="checkbox"]:checked');
+    return Array.from(checked).map(function(cb) { return parseInt(cb.value); });
+}
+
+function loadModules() {
+    fetch('/api/v1/modules')
+        .then(r => r.json())
+        .then(data => {
+            var container = document.getElementById('module-list');
+            container.innerHTML = '';
+            data.modules.forEach(function(mod) {
+                var label = document.createElement('label');
+                label.style.display = 'flex';
+                label.style.alignItems = 'center';
+                label.style.gap = '0.5rem';
+                label.style.padding = '0.25rem 0';
+                var cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.value = mod.name;
+                cb.checked = mod.enabled;
+                cb.className = 'module-cb';
+                label.appendChild(cb);
+                label.appendChild(document.createTextNode(mod.name));
+                container.appendChild(label);
+            });
+        })
+        .catch(() => {});
+}
+
+function loadTargets() {
+    fetch('/api/v1/targets')
+        .then(r => r.json())
+        .then(data => {
+            // Populate VLAN picker
+            var vlanPicker = document.getElementById('vlan-picker');
+            vlanPicker.innerHTML = '';
+            data.vlans.forEach(function(vlan) {
+                var label = document.createElement('label');
+                label.style.display = 'flex';
+                label.style.alignItems = 'center';
+                label.style.gap = '0.5rem';
+                label.style.padding = '0.25rem 0';
+                var cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.value = vlan.id;
+                cb.checked = true;
+                label.appendChild(cb);
+                label.appendChild(document.createTextNode('VLAN ' + vlan.id + ' — ' + vlan.name));
+                vlanPicker.appendChild(label);
+            });
+
+            // Populate target picker
+            var targetPicker = document.getElementById('target-picker');
+            targetPicker.innerHTML = '';
+            data.vlans.forEach(function(vlan) {
+                var group = document.createElement('div');
+                group.className = 'vlan-group';
+
+                var header = document.createElement('div');
+                header.className = 'vlan-group-header';
+                header.textContent = 'VLAN ' + vlan.id + ' — ' + vlan.name;
+                header.onclick = function() {
+                    var list = group.querySelector('.target-list');
+                    list.style.display = list.style.display === 'none' ? 'block' : 'none';
+                };
+                group.appendChild(header);
+
+                var list = document.createElement('div');
+                list.className = 'target-list';
+
+                if (vlan.targets.length === 0 && !vlan.gateway) {
+                    var empty = document.createElement('div');
+                    empty.style.color = 'var(--text-muted)';
+                    empty.style.padding = '0.25rem 0';
+                    empty.textContent = 'No targets';
+                    list.appendChild(empty);
+                } else {
+                    var checkAll = document.createElement('a');
+                    checkAll.className = 'check-all';
+                    checkAll.href = '#';
+                    checkAll.textContent = 'Select All';
+                    checkAll.onclick = function(e) {
+                        e.preventDefault();
+                        var cbs = list.querySelectorAll('input[type="checkbox"]');
+                        var allChecked = Array.from(cbs).every(function(c) { return c.checked; });
+                        cbs.forEach(function(c) { c.checked = !allChecked; });
+                        checkAll.textContent = allChecked ? 'Select All' : 'Deselect All';
+                    };
+                    list.appendChild(checkAll);
+
+                    var allTargets = vlan.targets.slice();
+                    if (vlan.gateway) allTargets.unshift(vlan.gateway + ' (gw)');
+                    allTargets.forEach(function(target) {
+                        var ip = target.replace(' (gw)', '');
+                        var label = document.createElement('label');
+                        label.style.display = 'flex';
+                        label.style.alignItems = 'center';
+                        label.style.gap = '0.5rem';
+                        label.style.padding = '0.15rem 0';
+                        var cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        cb.value = ip;
+                        cb.className = 'target-cb';
+                        cb.checked = true;
+                        label.appendChild(cb);
+                        label.appendChild(document.createTextNode(target));
+                        list.appendChild(label);
+                    });
+                }
+
+                group.appendChild(list);
+                targetPicker.appendChild(group);
+            });
+        })
+        .catch(() => {});
+}
+
+function triggerModules() {
+    var modules = Array.from(document.querySelectorAll('.module-cb:checked')).map(function(cb) { return cb.value; });
+    var targets = Array.from(document.querySelectorAll('.target-cb:checked')).map(function(cb) { return cb.value; });
+    var feedback = document.getElementById('trigger-feedback');
+
+    if (modules.length === 0) { feedback.textContent = 'Error: No modules selected'; feedback.style.color = 'var(--red)'; return; }
+    if (targets.length === 0) { feedback.textContent = 'Error: No targets selected'; feedback.style.color = 'var(--red)'; return; }
+
+    feedback.textContent = 'Triggering...';
+    feedback.style.color = 'var(--yellow)';
+
+    fetch('/api/v1/trigger', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({modules: modules, targets: targets})
+    })
+    .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        if (res.ok) {
+            feedback.textContent = 'Triggered: ' + res.data.modules.join(', ') + ' → ' + res.data.targets.length + ' target(s)';
+            feedback.style.color = 'var(--green)';
+        } else {
+            feedback.textContent = 'Error: ' + (res.data.error || 'Unknown error');
+            feedback.style.color = 'var(--red)';
+        }
+        refreshStatus();
+    })
+    .catch(function(err) {
+        feedback.textContent = 'Error: ' + err;
+        feedback.style.color = 'var(--red)';
+    });
+}
+
+function loadAlerts(timeRange) {
+    var summary = document.getElementById('alert-summary');
+    var table = document.getElementById('alert-table');
+    var tbody = document.getElementById('alert-tbody');
+    summary.innerHTML = '<span style="color: var(--yellow);">Loading alerts...</span>';
+
+    fetch('/api/v1/alerts?time_range=' + timeRange)
+        .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+        .then(function(res) {
+            if (!res.ok || res.data.error) {
+                summary.innerHTML = '<span style="color: var(--red);">' + (res.data.error || 'Failed to load') + '</span>';
+                table.style.display = 'none';
+                return;
+            }
+            var alerts = res.data.alerts || [];
+            if (alerts.length === 0) {
+                summary.innerHTML = '<span style="color: var(--green);">No alerts in this time range</span>';
+                table.style.display = 'none';
+                return;
+            }
+            var total = alerts.reduce(function(sum, a) { return sum + (a.count || 1); }, 0);
+            summary.innerHTML = '<span style="color: var(--red);">' + total + ' alert(s) in ' + alerts.length + ' group(s)</span>';
+            tbody.innerHTML = '';
+            alerts.slice(0, 25).forEach(function(alert) {
+                var event = alert.event || {};
+                var src = event.src_ip || (alert.source || {}).src_ip || '--';
+                var dst = event.dest_ip || (alert.source || {}).dest_ip || '--';
+                var sig = (event.alert || {}).signature || alert.signature || '--';
+                var count = alert.count || 1;
+                var ts = alert.maxTs || alert.max_timestamp || '--';
+                if (ts !== '--') {
+                    try { ts = new Date(ts).toLocaleString(); } catch(e) {}
+                }
+                var tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + sig + '</td><td>' + src + '</td><td>' + dst + '</td><td>' + count + '</td><td>' + ts + '</td>';
+                tbody.appendChild(tr);
+            });
+            table.style.display = 'table';
+        })
+        .catch(function(err) {
+            summary.innerHTML = '<span style="color: var(--red);">Error: ' + err + '</span>';
+            table.style.display = 'none';
+        });
+}
+
+loadModules();
+loadTargets();
 refreshStatus();
 setInterval(refreshStatus, 3000);
 </script>

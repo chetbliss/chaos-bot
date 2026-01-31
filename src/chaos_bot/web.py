@@ -7,9 +7,13 @@ from datetime import datetime, timezone
 
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 
+import requests as http_requests
+
 from chaos_bot.config import load_config
 from chaos_bot.lease_db import LeaseDB
 from chaos_bot.logger import get_log_buffer
+from chaos_bot.modules import MODULES, build_modules
+from chaos_bot.scheduler import run_once
 
 app = Flask(__name__)
 
@@ -24,6 +28,9 @@ _state = {
     "stop_event": None,     # threading.Event
     "config": None,
     "daemon_thread": None,
+    "selected_modules": [],
+    "selected_targets": [],
+    "selected_vlans": [],
 }
 
 
@@ -90,6 +97,10 @@ def api_hop():
     hopper = _state.get("hopper")
     if not hopper:
         return jsonify({"error": "Hopper not initialized"}), 503
+    if hopper.state == "attacking":
+        return jsonify({"error": "Cannot hop: currently attacking"}), 409
+    if hopper.state == "hopping":
+        return jsonify({"error": "Cannot hop: already hopping"}), 409
 
     def _hop():
         result = hopper.hop_once()
@@ -107,13 +118,21 @@ def api_start():
     hopper = _state.get("hopper")
     if not hopper:
         return jsonify({"error": "Hopper not initialized"}), 503
+    if hopper.state not in ("idle", "cooldown"):
+        return jsonify({"error": f"Cannot start: currently {hopper.state}"}), 409
 
     stop_event = _state.get("stop_event")
     if stop_event:
         stop_event.clear()
 
+    # Accept optional VLAN filter from request body
+    vlan_filter = None
+    body = request.get_json(silent=True)
+    if body and body.get("vlans"):
+        vlan_filter = [int(v) for v in body["vlans"]]
+
     def _run_daemon():
-        hopper.run_daemon(stop_event=stop_event)
+        hopper.run_daemon(stop_event=stop_event, vlan_filter=vlan_filter)
 
     if _state.get("daemon_thread") and _state["daemon_thread"].is_alive():
         return jsonify({"status": "already_running"})
@@ -152,6 +171,9 @@ def api_config_get():
 
 @app.route("/api/v1/config", methods=["PUT"])
 def api_config_put():
+    hopper = _state.get("hopper")
+    if hopper and hopper.state == "attacking":
+        return jsonify({"error": "Cannot update config while attacking"}), 409
     try:
         new_cfg = request.get_json()
         if not new_cfg:
@@ -185,6 +207,114 @@ def api_logs_sse():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.route("/api/v1/modules")
+def api_modules():
+    """Return available modules and their enabled state."""
+    cfg = _state.get("config") or {}
+    mod_configs = cfg.get("modules", {})
+    modules_list = []
+    for name in MODULES:
+        mod_cfg = mod_configs.get(name, {})
+        modules_list.append({
+            "name": name,
+            "enabled": mod_cfg.get("enabled", True),
+        })
+    return jsonify({"modules": modules_list})
+
+
+@app.route("/api/v1/targets")
+def api_targets():
+    """Return all targets grouped by VLAN."""
+    cfg = _state.get("config") or {}
+    vlans = cfg.get("vlans", [])
+    vlan_list = []
+    for vlan in vlans:
+        vlan_list.append({
+            "id": vlan.get("id"),
+            "name": vlan.get("name", ""),
+            "gateway": vlan.get("gateway", ""),
+            "targets": vlan.get("targets", []),
+        })
+    return jsonify({"vlans": vlan_list})
+
+
+@app.route("/api/v1/trigger", methods=["POST"])
+def api_trigger():
+    """Run selected modules against selected hosts without hopping."""
+    hopper = _state.get("hopper")
+    if hopper and hopper.state == "attacking":
+        return jsonify({"error": "Cannot trigger while attacking"}), 409
+    if hopper and hopper.state == "hopping":
+        return jsonify({"error": "Cannot trigger while hopping"}), 409
+
+    body = request.get_json()
+    if not body:
+        return jsonify({"error": "No JSON body"}), 400
+
+    modules_requested = body.get("modules", [])
+    targets_requested = body.get("targets", [])
+
+    if not modules_requested:
+        return jsonify({"error": "No modules selected"}), 400
+    if not targets_requested:
+        return jsonify({"error": "No targets selected"}), 400
+
+    # Validate module names
+    for mod_name in modules_requested:
+        if mod_name not in MODULES:
+            return jsonify({"error": f"Unknown module: {mod_name}"}), 400
+
+    # Validate targets against config
+    cfg = _state.get("config") or {}
+    valid_targets = set()
+    for vlan in cfg.get("vlans", []):
+        valid_targets.update(vlan.get("targets", []))
+        if vlan.get("gateway"):
+            valid_targets.add(vlan["gateway"])
+    for target in targets_requested:
+        if target not in valid_targets:
+            return jsonify({"error": f"Target not in config: {target}"}), 400
+
+    management_ip = cfg.get("general", {}).get("management_ip", "0.0.0.0")
+    interface = cfg.get("general", {}).get("interface", "eth1")
+
+    def _run_trigger():
+        built = build_modules(
+            source_ip=management_ip,
+            interface=interface,
+            config=cfg,
+            module_filter=modules_requested,
+        )
+        run_once(built, targets_requested, cfg)
+
+    t = threading.Thread(target=_run_trigger, daemon=True)
+    t.start()
+    return jsonify({
+        "status": "triggered",
+        "modules": modules_requested,
+        "targets": targets_requested,
+    })
+
+
+@app.route("/api/v1/alerts")
+def api_alerts():
+    """Proxy Suricata alerts from EveBox API."""
+    cfg = _state.get("config") or {}
+    evebox_url = cfg.get("evebox", {}).get("url", "http://10.30.30.60:5636")
+    time_range = request.args.get("time_range", "86400s")
+
+    try:
+        resp = http_requests.get(
+            f"{evebox_url}/api/1/alerts",
+            params={"time_range": time_range, "tags": "-archived"},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        return jsonify(resp.json())
+    except http_requests.RequestException as e:
+        return jsonify({"error": f"EveBox unreachable: {e}", "alerts": []}), 502
 
 
 def run_web(config: dict, hopper=None, stop_event=None):

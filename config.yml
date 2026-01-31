@@ -98,3 +98,6 @@ web:
   enabled: true
   host: 10.10.10.4
   port: 8880
+
+evebox:
+  url: "http://10.30.30.60:5636"

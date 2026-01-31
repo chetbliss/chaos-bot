@@ -104,9 +104,19 @@ class VlanHopper:
         self._current_ip = None
         self._state = "cooldown"
 
-    def hop_once(self) -> dict:
-        """Execute a single VLAN hop cycle."""
-        vlan = random.choice(self.vlans)
+    def hop_once(self, vlan_filter: list[int] | None = None) -> dict:
+        """Execute a single VLAN hop cycle.
+
+        Args:
+            vlan_filter: If provided, only hop to VLANs with these IDs.
+        """
+        available_vlans = self.vlans
+        if vlan_filter is not None:
+            available_vlans = [v for v in self.vlans if v["id"] in vlan_filter]
+            if not available_vlans:
+                self.log.error("No VLANs match filter", extra={"bot_module": "vlan_hopper"})
+                return {"status": "error", "message": "No VLANs match filter"}
+        vlan = random.choice(available_vlans)
         vlan_id = vlan["id"]
         gateway = vlan.get("gateway", "")
         targets = vlan.get("targets", [])
@@ -206,7 +216,7 @@ class VlanHopper:
             pass
         return "unknown"
 
-    def run_daemon(self, stop_event=None) -> None:
+    def run_daemon(self, stop_event=None, vlan_filter: list[int] | None = None) -> None:
         """Continuously hop VLANs until stopped."""
         self._running = True
 
@@ -226,7 +236,7 @@ class VlanHopper:
                 break
 
             try:
-                self.hop_once()
+                self.hop_once(vlan_filter=vlan_filter)
             except Exception as e:
                 self.log.error(f"Hop cycle failed: {e}", extra={
                     "bot_module": "vlan_hopper"
