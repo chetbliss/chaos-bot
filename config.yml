@@ -11,33 +11,21 @@ general:
   dry_run: false
 
 vlans:
-  - id: 20
-    name: servers
-    gateway: 10.20.0.1
-    targets:
-      - 10.20.0.10   # proxmox-01
-      - 10.20.0.11   # proxmox-02
-      - 10.20.0.12   # proxmox-03
-      - 10.20.0.20   # truenas
-      - 10.20.0.30   # docker-host
   - id: 30
-    name: workstations
-    gateway: 10.30.0.1
+    name: servers
+    gateway: 10.30.30.1
     targets:
-      - 10.30.0.50   # win-workstation
-      - 10.30.0.51   # linux-desktop
+      - 10.30.30.10  # dc1
+      - 10.30.30.11  # dc2
+      - 10.30.30.60  # secdocker
   - id: 40
-    name: iot
-    gateway: 10.40.0.1
-    targets:
-      - 10.40.0.100  # iot-hub
-      - 10.40.0.101  # camera-nvr
+    name: vlan40
+    gateway: 10.40.40.1
+    targets: []
   - id: 50
-    name: dmz
-    gateway: 10.50.0.1
-    targets:
-      - 10.50.0.10   # web-server
-      - 10.50.0.11   # mail-server
+    name: vlan50
+    gateway: 10.50.50.1
+    targets: []
 
 excluded_hosts:
   - 10.10.10.1   # management gateway
