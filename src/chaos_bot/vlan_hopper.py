@@ -228,8 +228,10 @@ class VlanHopper:
             if stop_event:
                 stop_event.set()
 
-        signal.signal(signal.SIGINT, _signal_handler)
-        signal.signal(signal.SIGTERM, _signal_handler)
+        import threading
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGINT, _signal_handler)
+            signal.signal(signal.SIGTERM, _signal_handler)
 
         while self._running:
             if stop_event and stop_event.is_set():

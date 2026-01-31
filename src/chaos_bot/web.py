@@ -270,7 +270,8 @@ def api_trigger():
     cfg = _state.get("config") or {}
     valid_targets = set()
     for vlan in cfg.get("vlans", []):
-        valid_targets.update(vlan.get("targets", []))
+        targets = vlan.get("targets") or []
+        valid_targets.update(targets)
         if vlan.get("gateway"):
             valid_targets.add(vlan["gateway"])
     for target in targets_requested:
