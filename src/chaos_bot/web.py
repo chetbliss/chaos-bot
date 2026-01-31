@@ -317,12 +317,27 @@ def api_trigger():
 def api_alerts():
     """Proxy Suricata alerts from EveBox API."""
     cfg = _state.get("config") or {}
-    evebox_url = cfg.get("evebox", {}).get("url", "http://10.30.30.60:5636")
+    evebox_cfg = cfg.get("evebox", {})
+    evebox_url = evebox_cfg.get("url", "https://evebox.lab.chettv.com")
+    evebox_user = evebox_cfg.get("username", "admin")
+    evebox_pass = evebox_cfg.get("password", "")
     time_range = request.args.get("time_range", "86400s")
 
     try:
-        resp = http_requests.get(
-            f"{evebox_url}/api/1/alerts",
+        session = http_requests.Session()
+        session.verify = False  # internal HTTPS with self-signed cert
+
+        # Authenticate to EveBox
+        login_resp = session.post(
+            f"{evebox_url}/api/login",
+            data={"username": evebox_user, "password": evebox_pass},
+            timeout=5,
+        )
+        if login_resp.status_code != 200:
+            return jsonify({"error": "EveBox auth failed", "alerts": []}), 502
+
+        resp = session.get(
+            f"{evebox_url}/api/alerts",
             params={"time_range": time_range, "tags": "-archived"},
             timeout=5,
         )
