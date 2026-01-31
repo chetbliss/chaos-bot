@@ -203,7 +203,11 @@ def api_config_put():
 def api_logs_sse():
     """Server-Sent Events stream of log lines."""
     def generate():
-        last_idx = len(get_log_buffer())
+        # Send existing buffer first so page isn't empty
+        buf = get_log_buffer()
+        for line in buf:
+            yield f"data: {line}\n\n"
+        last_idx = len(buf)
         while True:
             buf = get_log_buffer()
             if len(buf) > last_idx:
