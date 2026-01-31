@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Chaos Bot{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav>
+        <span class="brand">CHAOS-BOT</span>
+        <div class="links">
+            <a href="/" {% if request.path == '/' %}class="active"{% endif %}>Dashboard</a>
+            <a href="/history" {% if request.path == '/history' %}class="active"{% endif %}>History</a>
+            <a href="/config" {% if request.path == '/config' %}class="active"{% endif %}>Config</a>
+            <a href="/logs" {% if request.path == '/logs' %}class="active"{% endif %}>Logs</a>
+        </div>
+    </nav>
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

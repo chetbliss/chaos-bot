@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "chaos-bot"
+version = "0.1.0"
+description = "Automated red-team traffic generator for home-lab security monitoring validation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Chet Bliss"}]
+
+dependencies = [
+    "click>=8.1",
+    "pyyaml>=6.0",
+    "paramiko>=3.4",
+    "requests>=2.31",
+    "dnspython>=2.4",
+    "python-nmap>=0.7",
+    "prometheus-client>=0.20",
+    "impacket>=0.11",
+    "apprise>=1.7",
+    "flask>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+]
+
+[project.scripts]
+chaos-bot = "chaos_bot.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]

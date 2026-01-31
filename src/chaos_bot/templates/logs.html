@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Logs — Chaos Bot{% endblock %}
+{% block content %}
+<h1 style="margin: 1rem 0;">Live Logs</h1>
+
+<div class="controls">
+    <button class="btn" id="toggle-btn" onclick="toggleStream()">Pause</button>
+    <button class="btn" onclick="clearLogs()">Clear Display</button>
+    <span id="stream-status" style="color: var(--green); margin-left: 1rem;">Connected</span>
+</div>
+
+<div class="log-viewer" id="log-output"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let evtSource = null;
+let paused = false;
+const logEl = document.getElementById('log-output');
+const statusEl = document.getElementById('stream-status');
+
+function startStream() {
+    evtSource = new EventSource('/api/v1/logs');
+    evtSource.onmessage = function(e) {
+        if (paused) return;
+        try {
+            const entry = JSON.parse(e.data);
+            const line = `[${entry.timestamp}] ${entry.level} ${entry.module}: ${entry.message}`;
+            logEl.textContent += line + '\n';
+            logEl.scrollTop = logEl.scrollHeight;
+        } catch {
+            logEl.textContent += e.data + '\n';
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+    };
+    evtSource.onerror = function() {
+        statusEl.textContent = 'Disconnected';
+        statusEl.style.color = '#f85149';
+    };
+    statusEl.textContent = 'Connected';
+    statusEl.style.color = '#3fb950';
+}
+
+function toggleStream() {
+    paused = !paused;
+    document.getElementById('toggle-btn').textContent = paused ? 'Resume' : 'Pause';
+}
+
+function clearLogs() {
+    logEl.textContent = '';
+}
+
+startStream();
+</script>
+{% endblock %}

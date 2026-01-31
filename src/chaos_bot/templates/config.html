@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Config — Chaos Bot{% endblock %}
+{% block content %}
+<h1 style="margin: 1rem 0;">Configuration</h1>
+
+<div class="card">
+    <h2>Current Config</h2>
+    <pre class="config-block" id="config-display">{{ config | tojson(indent=2) }}</pre>
+</div>
+
+<div class="card">
+    <h2>Update Config</h2>
+    <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
+        Paste JSON to merge into current config. Changes take effect on next cycle.
+    </p>
+    <textarea id="config-input" rows="10" style="
+        width: 100%; background: #000; color: var(--text); border: 1px solid var(--border);
+        border-radius: 4px; padding: 0.75rem; font-family: inherit; font-size: 0.85rem;
+        resize: vertical;
+    " placeholder='{"schedule": {"cooldown_min": 60}}'></textarea>
+    <div style="margin-top: 0.5rem;">
+        <button class="btn btn-primary" onclick="updateConfig()">Apply</button>
+        <span id="config-status" style="margin-left: 1rem; color: var(--text-muted);"></span>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function updateConfig() {
+    const input = document.getElementById('config-input').value;
+    const status = document.getElementById('config-status');
+    try {
+        const data = JSON.parse(input);
+        fetch('/api/v1/config', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data),
+        })
+        .then(r => r.json())
+        .then(resp => {
+            if (resp.error) {
+                status.textContent = 'Error: ' + resp.error;
+                status.style.color = '#f85149';
+            } else {
+                status.textContent = 'Config updated';
+                status.style.color = '#3fb950';
+                // Refresh display
+                fetch('/api/v1/config').then(r => r.json()).then(cfg => {
+                    document.getElementById('config-display').textContent = JSON.stringify(cfg, null, 2);
+                });
+            }
+        });
+    } catch (e) {
+        status.textContent = 'Invalid JSON: ' + e.message;
+        status.style.color = '#f85149';
+    }
+}
+</script>
+{% endblock %}

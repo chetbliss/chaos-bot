@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}History — Chaos Bot{% endblock %}
+{% block content %}
+<h1 style="margin: 1rem 0;">Lease History</h1>
+
+<div class="controls">
+    <select id="vlan-filter" onchange="filterVlan()">
+        <option value="">All VLANs</option>
+        {% for v in vlans %}
+        <option value="{{ v.id }}" {% if selected_vlan == v.id %}selected{% endif %}>
+            VLAN {{ v.id }} ({{ v.get('name', '') }})
+        </option>
+        {% endfor %}
+    </select>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th><th>VLAN</th><th>IP</th><th>MAC</th>
+                <th>Timestamp</th><th>Duration</th><th>Modules</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for lease in leases %}
+            <tr>
+                <td>{{ lease.id }}</td>
+                <td>{{ lease.vlan_id }}</td>
+                <td>{{ lease.ip }}</td>
+                <td>{{ lease.mac }}</td>
+                <td>{{ lease.timestamp }}</td>
+                <td>{{ lease.duration_sec }}s</td>
+                <td>{{ lease.modules_run }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="7" style="color: var(--text-muted);">No history</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterVlan() {
+    const v = document.getElementById('vlan-filter').value;
+    window.location.href = v ? '/history?vlan=' + v : '/history';
+}
+</script>
+{% endblock %}

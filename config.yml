@@ -1,0 +1,103 @@
+# Chaos Bot — Lab Configuration
+# This tool generates adversarial traffic to validate security monitoring
+# in an isolated home-lab environment.
+
+general:
+  hostname: chaosbot-nuc
+  management_ip: 10.10.10.4
+  interface: eth1
+  log_file: /var/log/chaos-bot/chaos-bot.log
+  log_level: INFO
+  dry_run: false
+
+vlans:
+  - id: 20
+    name: servers
+    gateway: 10.20.0.1
+    targets:
+      - 10.20.0.10   # proxmox-01
+      - 10.20.0.11   # proxmox-02
+      - 10.20.0.12   # proxmox-03
+      - 10.20.0.20   # truenas
+      - 10.20.0.30   # docker-host
+  - id: 30
+    name: workstations
+    gateway: 10.30.0.1
+    targets:
+      - 10.30.0.50   # win-workstation
+      - 10.30.0.51   # linux-desktop
+  - id: 40
+    name: iot
+    gateway: 10.40.0.1
+    targets:
+      - 10.40.0.100  # iot-hub
+      - 10.40.0.101  # camera-nvr
+  - id: 50
+    name: dmz
+    gateway: 10.50.0.1
+    targets:
+      - 10.50.0.10   # web-server
+      - 10.50.0.11   # mail-server
+
+excluded_hosts:
+  - 10.10.10.1   # management gateway
+  - 10.10.10.2   # dns server
+  - 10.10.10.3   # monitoring stack
+  - 10.10.10.4   # self (chaosbot NUC)
+
+credentials:
+  username: chaos-bot
+  password: NotARealPassword
+
+schedule:
+  hop_dwell_min: 120     # seconds on each VLAN (minimum)
+  hop_dwell_max: 600     # seconds on each VLAN (maximum)
+  module_delay_min: 5    # seconds between module runs
+  module_delay_max: 30
+  cooldown_min: 30       # seconds between hops
+  cooldown_max: 120
+
+modules:
+  net_scanner:
+    enabled: true
+    intensity: medium     # low | medium | high
+    port_list: "22,80,443,445,3389,8080,8443"
+  auth_prober:
+    enabled: true
+    max_attempts: 2       # per target per protocol per cycle
+    protocols:
+      - ssh
+      - rdp
+      - smb
+      - http_basic
+      - kerberos
+      - ldap
+  dns_noise:
+    enabled: true
+    resolver: 10.10.10.2
+    query_count: 10
+  http_probe:
+    enabled: true
+    paths:
+      - /admin
+      - /wp-login.php
+      - /.env
+      - /.git/HEAD
+      - /api/v1/admin
+      - /server-status
+
+notifications:
+  enabled: true
+  apprise_url: "http://10.10.10.3:8800/notify"
+  on_cycle_complete: true
+  on_error: true
+
+metrics:
+  enabled: true
+  port: 9100
+  bind_address: 10.10.10.4
+
+web:
+  enabled: true
+  host: 10.10.10.4
+  port: 8880

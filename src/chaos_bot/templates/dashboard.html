@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Chaos Bot{% endblock %}
+{% block content %}
+<h1 style="margin: 1rem 0;">Dashboard</h1>
+
+<div class="grid grid-4">
+    <div class="card">
+        <div class="stat">
+            <div class="value" id="status-text">--</div>
+            <div class="label">Status</div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="stat">
+            <div class="value" id="vlan-text">--</div>
+            <div class="label">Current VLAN</div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="stat">
+            <div class="value" id="ip-text">--</div>
+            <div class="label">Source IP</div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="stat">
+            <div class="value" id="cycle-text">0</div>
+            <div class="label">Cycles</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Controls</h2>
+    <div class="controls">
+        <button class="btn btn-primary" onclick="apiPost('/api/v1/start')">Start Daemon</button>
+        <button class="btn btn-danger" onclick="apiPost('/api/v1/stop')">Stop</button>
+        <button class="btn" onclick="apiPost('/api/v1/hop')">Single Hop</button>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Recent Lease History</h2>
+    <table>
+        <thead>
+            <tr><th>VLAN</th><th>IP</th><th>MAC</th><th>Time</th><th>Duration</th><th>Modules</th></tr>
+        </thead>
+        <tbody>
+        {% for lease in recent_leases %}
+            <tr>
+                <td>{{ lease.vlan_id }}</td>
+                <td>{{ lease.ip }}</td>
+                <td>{{ lease.mac }}</td>
+                <td>{{ lease.timestamp }}</td>
+                <td>{{ lease.duration_sec }}s</td>
+                <td>{{ lease.modules_run }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="6" style="color: var(--text-muted);">No lease history yet</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function refreshStatus() {
+    fetch('/api/v1/status')
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('status-text').textContent = data.status || 'idle';
+            document.getElementById('vlan-text').textContent = data.current_vlan || '--';
+            document.getElementById('ip-text').textContent = data.current_ip || '--';
+            document.getElementById('cycle-text').textContent = data.cycle_count || 0;
+
+            const el = document.getElementById('status-text');
+            el.className = 'value';
+            if (data.status === 'attacking') el.style.color = '#f85149';
+            else if (data.status === 'hopping') el.style.color = '#d29922';
+            else if (data.status === 'cooldown') el.style.color = '#3fb950';
+            else el.style.color = '#8b949e';
+        })
+        .catch(() => {});
+}
+
+function apiPost(url) {
+    fetch(url, {method: 'POST'})
+        .then(r => r.json())
+        .then(data => { console.log(data); refreshStatus(); })
+        .catch(err => console.error(err));
+}
+
+refreshStatus();
+setInterval(refreshStatus, 3000);
+</script>
+{% endblock %}
