@@ -82,7 +82,7 @@
         <button class="btn" onclick="loadAlerts('604800s')">Last 7d</button>
     </div>
     <div id="alert-summary" style="margin: 0.75rem 0;">
-        <span style="color: var(--text-muted);">Click a time range to load alerts</span>
+        <span style="color: var(--text-muted);">Loading alerts...</span>
     </div>
     <table id="alert-table" style="display: none;">
         <thead>
@@ -332,22 +332,27 @@ function loadAlerts(timeRange) {
                 table.style.display = 'none';
                 return;
             }
-            var alerts = res.data.alerts || [];
+            var alerts = res.data.events || res.data.alerts || [];
             if (alerts.length === 0) {
                 summary.innerHTML = '<span style="color: var(--green);">No alerts in this time range</span>';
                 table.style.display = 'none';
                 return;
             }
-            var total = alerts.reduce(function(sum, a) { return sum + (a.count || 1); }, 0);
+            var total = alerts.reduce(function(sum, a) {
+                var meta = a._metadata || {};
+                return sum + (meta.count || a.count || 1);
+            }, 0);
             summary.innerHTML = '<span style="color: var(--red);">' + total + ' alert(s) in ' + alerts.length + ' group(s)</span>';
             tbody.innerHTML = '';
             alerts.slice(0, 25).forEach(function(alert) {
-                var event = alert.event || {};
-                var src = event.src_ip || (alert.source || {}).src_ip || '--';
-                var dst = event.dest_ip || (alert.source || {}).dest_ip || '--';
-                var sig = (event.alert || {}).signature || alert.signature || '--';
-                var count = alert.count || 1;
-                var ts = alert.maxTs || alert.max_timestamp || '--';
+                var source = alert._source || {};
+                var meta = alert._metadata || {};
+                var alertInfo = source.alert || {};
+                var src = source.src_ip || '--';
+                var dst = source.dest_ip || '--';
+                var sig = alertInfo.signature || '--';
+                var count = meta.count || 1;
+                var ts = meta.max_timestamp || source.timestamp || '--';
                 if (ts !== '--') {
                     try { ts = new Date(ts).toLocaleString(); } catch(e) {}
                 }
@@ -388,6 +393,7 @@ activitySource.onerror = function() {
 
 loadModules();
 loadTargets();
+loadAlerts('86400s');
 refreshStatus();
 setInterval(refreshStatus, 3000);
 </script>
