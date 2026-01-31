@@ -113,10 +113,17 @@ def api_hop():
         return jsonify({"error": "Cannot hop: already hopping"}), 409
 
     def _hop():
-        result = hopper.hop_once()
-        _state["cycle_summaries"].append(result)
-        if len(_state["cycle_summaries"]) > 50:
-            _state["cycle_summaries"] = _state["cycle_summaries"][-50:]
+        try:
+            result = hopper.hop_once()
+            _state["cycle_summaries"].append(result)
+            if len(_state["cycle_summaries"]) > 50:
+                _state["cycle_summaries"] = _state["cycle_summaries"][-50:]
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            hopper._state = "idle"
+            if hopper._current_iface and hopper._current_vlan:
+                hopper._teardown(hopper._current_vlan, hopper._current_ip, hopper._current_iface)
 
     t = threading.Thread(target=_hop, daemon=True)
     t.start()

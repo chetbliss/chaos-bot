@@ -84,9 +84,9 @@ class VlanHopper:
 
     def _setup_policy_routing(self, ip: str, gateway: str, iface: str) -> None:
         """Add policy routing so attack traffic uses the VLAN interface."""
-        self._run_cmd(["ip", "rule", "add", "from", ip, "table", "attack"])
+        self._run_cmd(["ip", "rule", "add", "from", ip, "table", "attack"], check=False)
         self._run_cmd(["ip", "route", "add", "default", "via", gateway,
-                        "dev", iface, "table", "attack"])
+                        "dev", iface, "table", "attack"], check=False)
 
     def _teardown(self, vlan_id: int, ip: str | None, iface: str) -> None:
         """Clean up: release DHCP, flush routes, delete interface."""
