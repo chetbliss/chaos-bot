@@ -11,6 +11,7 @@ general:
   dry_run: false
 
 vlans:
+  # DO NOT add VLAN 20 (Corosync) or VLAN 21 (Replication)
   - id: 30
     name: servers
     gateway: 10.30.30.1
@@ -18,6 +19,14 @@ vlans:
       - 10.30.30.10  # dc1
       - 10.30.30.11  # dc2
       - 10.30.30.60  # secdocker
+  - id: 31
+    name: users
+    gateway: 10.31.31.1
+    targets: []
+  - id: 32
+    name: paw
+    gateway: 10.32.32.1
+    targets: []
   - id: 40
     name: vlan40
     gateway: 10.40.40.1
