@@ -303,13 +303,20 @@ def api_trigger():
     interface = cfg.get("general", {}).get("interface", "eth1")
 
     def _run_trigger():
-        built = build_modules(
-            source_ip=management_ip,
-            interface=interface,
-            config=cfg,
-            module_filter=modules_requested,
-        )
-        run_once(built, targets_requested, cfg)
+        hopper = _state.get("hopper")
+        if hopper:
+            hopper._state = "attacking"
+        try:
+            built = build_modules(
+                source_ip=management_ip,
+                interface=interface,
+                config=cfg,
+                module_filter=modules_requested,
+            )
+            run_once(built, targets_requested, cfg)
+        finally:
+            if hopper:
+                hopper._state = "idle"
 
     t = threading.Thread(target=_run_trigger, daemon=True)
     t.start()
