@@ -100,6 +100,7 @@ pytest tests/ -v
 
 | Version | Date | Changes |
 |---|---|---|
+| 0.1.3 | 2026-02-01 | CIDR target expansion for auth_prober and http_probe (random sample of 5 IPs from /24 subnets). Fixed Ansible handler: git clone now triggers service restart so code changes take effect immediately. |
 | 0.1.2 | 2026-01-31 | Redesigned dashboard (VLAN dropdown, module checkboxes, attack/daemon cards). Added VLAN 1 management targets. CIDR /24 subnet scanning. 28-port nmap at high intensity. Fixed source IP binding during VLAN hops. |
 | 0.1.1 | 2026-01-31 | C2 dashboard: module/VLAN/target pickers, manual trigger, Suricata alerts (EveBox), state validation, VLAN filter for daemon |
 | 0.1.0 | 2026-01-31 | Initial release: core framework, 4 modules, VLAN hopper, web UI, metrics, notifications, lease history |
