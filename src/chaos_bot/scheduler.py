@@ -7,7 +7,8 @@ from typing import Callable
 from chaos_bot.logger import get_logger
 
 
-def run_once(modules: dict[str, Callable], targets: list[str], config: dict) -> list[dict]:
+def run_once(modules: dict[str, Callable], targets: list[str], config: dict,
+             stop_event=None) -> list[dict]:
     """Run all enabled modules once against targets, return results."""
     log = get_logger()
     results = []
@@ -19,6 +20,10 @@ def run_once(modules: dict[str, Callable], targets: list[str], config: dict) -> 
     delay_max = schedule.get("module_delay_max", 30)
 
     for name in module_names:
+        if stop_event and stop_event.is_set():
+            log.info("Stop event received, aborting run", extra={"bot_module": "scheduler"})
+            break
+
         mod_cfg = config.get("modules", {}).get(name, {})
         if not mod_cfg.get("enabled", True):
             log.info(f"Skipping disabled module: {name}", extra={"bot_module": name})
@@ -42,7 +47,10 @@ def run_once(modules: dict[str, Callable], targets: list[str], config: dict) -> 
         if name != module_names[-1]:
             delay = random.uniform(delay_min, delay_max)
             log.debug(f"Sleeping {delay:.1f}s before next module", extra={"bot_module": "scheduler"})
-            time.sleep(delay)
+            if stop_event:
+                stop_event.wait(timeout=delay)
+            else:
+                time.sleep(delay)
 
     return results
 

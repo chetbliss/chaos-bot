@@ -304,6 +304,9 @@ def api_trigger():
 
     def _run_trigger():
         hopper = _state.get("hopper")
+        stop_event = _state.get("stop_event")
+        if stop_event:
+            stop_event.clear()
         if hopper:
             hopper._state = "attacking"
         try:
@@ -313,7 +316,7 @@ def api_trigger():
                 config=cfg,
                 module_filter=modules_requested,
             )
-            run_once(built, targets_requested, cfg)
+            run_once(built, targets_requested, cfg, stop_event=stop_event)
         finally:
             if hopper:
                 hopper._state = "idle"
