@@ -130,8 +130,9 @@ class VlanHopper:
         iface = self._create_vlan_iface(vlan_id)
         self._current_iface = iface
 
-        # DHCP with retry for duplicate IP
+        # DHCP with retry — try for a different IP but accept duplicate after retries
         ip = None
+        last_ip = None
         for attempt in range(3):
             ip = self._obtain_dhcp(iface)
             if ip is None:
@@ -139,6 +140,7 @@ class VlanHopper:
                     "bot_module": "vlan_hopper", "vlan_id": vlan_id
                 })
                 continue
+            last_ip = ip
             if self.lease_db.check_duplicate(vlan_id, ip):
                 self.log.warning(f"Duplicate IP {ip} on VLAN {vlan_id}, retrying", extra={
                     "bot_module": "vlan_hopper", "vlan_id": vlan_id, "source_ip": ip
@@ -148,8 +150,16 @@ class VlanHopper:
                 continue
             break
 
+        # Accept duplicate IP if DHCP keeps giving the same one
+        if not ip and last_ip:
+            self.log.warning(f"Accepting duplicate IP {last_ip} on VLAN {vlan_id}", extra={
+                "bot_module": "vlan_hopper", "vlan_id": vlan_id, "source_ip": last_ip
+            })
+            # Re-obtain the lease we released
+            ip = self._obtain_dhcp(iface) or last_ip
+
         if not ip:
-            self.log.error(f"Failed to obtain unique IP on VLAN {vlan_id}", extra={
+            self.log.error(f"Failed to obtain IP on VLAN {vlan_id}", extra={
                 "bot_module": "vlan_hopper", "vlan_id": vlan_id
             })
             self._teardown(vlan_id, None, iface)

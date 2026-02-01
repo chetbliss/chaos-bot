@@ -48,14 +48,16 @@ class LeaseDB:
         return cur.lastrowid
 
     def check_duplicate(self, vlan_id: int, ip: str) -> bool:
-        """Check if this IP was recently used on this VLAN (last 10 leases)."""
+        """Check if this IP is the same as the immediately previous lease on this VLAN.
+
+        Only rejects if the very last lease used this exact IP, to avoid
+        getting stuck when DHCP consistently assigns the same address.
+        """
         row = self._conn.execute(
-            "SELECT COUNT(*) as cnt FROM "
-            "(SELECT ip FROM leases WHERE vlan_id = ? ORDER BY id DESC LIMIT 10) "
-            "WHERE ip = ?",
-            (vlan_id, ip),
+            "SELECT ip FROM leases WHERE vlan_id = ? ORDER BY id DESC LIMIT 1",
+            (vlan_id,),
         ).fetchone()
-        return row["cnt"] > 0
+        return row is not None and row["ip"] == ip
 
     def get_history(self, vlan_id: int | None = None, last: int = 50) -> list[dict]:
         """Get lease history, optionally filtered by VLAN."""
