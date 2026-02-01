@@ -132,7 +132,7 @@ def test_trigger_api_rejects_while_attacking(web_client):
     client, hopper = web_client
     hopper.state = "attacking"
     resp = client.post("/api/v1/trigger",
-                       json={"modules": ["net_scanner"], "targets": ["10.30.30.10"]})
+                       json={"modules": ["net_scanner"], "vlan_id": 30})
     assert resp.status_code == 409
     assert "attacking" in resp.get_json()["error"]
 
@@ -140,17 +140,25 @@ def test_trigger_api_rejects_while_attacking(web_client):
 def test_trigger_api_rejects_empty_modules(web_client):
     client, hopper = web_client
     resp = client.post("/api/v1/trigger",
-                       json={"modules": [], "targets": ["10.30.30.10"]})
+                       json={"modules": [], "vlan_id": 30})
     assert resp.status_code == 400
     assert "No modules" in resp.get_json()["error"]
 
 
-def test_trigger_api_rejects_empty_targets(web_client):
+def test_trigger_api_rejects_missing_vlan(web_client):
     client, hopper = web_client
     resp = client.post("/api/v1/trigger",
-                       json={"modules": ["net_scanner"], "targets": []})
+                       json={"modules": ["net_scanner"]})
     assert resp.status_code == 400
-    assert "No targets" in resp.get_json()["error"]
+    assert "No VLAN" in resp.get_json()["error"]
+
+
+def test_trigger_api_rejects_invalid_vlan(web_client):
+    client, hopper = web_client
+    resp = client.post("/api/v1/trigger",
+                       json={"modules": ["net_scanner"], "vlan_id": 999})
+    assert resp.status_code == 400
+    assert "999" in resp.get_json()["error"]
 
 
 def test_modules_api_returns_all(web_client):

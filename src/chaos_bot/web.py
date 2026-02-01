@@ -263,7 +263,7 @@ def api_targets():
 
 @app.route("/api/v1/trigger", methods=["POST"])
 def api_trigger():
-    """Run selected modules against selected hosts without hopping."""
+    """Hop to a VLAN, discover live hosts, and run selected modules from VLAN IP."""
     hopper = _state.get("hopper")
     if hopper and hopper.state == "attacking":
         return jsonify({"error": "Cannot trigger while attacking"}), 409
@@ -275,50 +275,54 @@ def api_trigger():
         return jsonify({"error": "No JSON body"}), 400
 
     modules_requested = body.get("modules", [])
-    targets_requested = body.get("targets", [])
+    vlan_id = body.get("vlan_id")
 
     if not modules_requested:
         return jsonify({"error": "No modules selected"}), 400
-    if not targets_requested:
-        return jsonify({"error": "No targets selected"}), 400
+    if vlan_id is None:
+        return jsonify({"error": "No VLAN selected"}), 400
+
+    # Validate vlan_id exists in config
+    cfg = _state.get("config") or {}
+    vlan_ids = [v["id"] for v in cfg.get("vlans", [])]
+    if int(vlan_id) not in vlan_ids:
+        return jsonify({"error": f"VLAN {vlan_id} not in config"}), 400
+
+    vlan_id = int(vlan_id)
 
     # Validate module names
     for mod_name in modules_requested:
         if mod_name not in MODULES:
             return jsonify({"error": f"Unknown module: {mod_name}"}), 400
 
-    # Validate targets against config
-    cfg = _state.get("config") or {}
-    valid_targets = set()
-    for vlan in cfg.get("vlans", []):
-        targets = vlan.get("targets") or []
-        valid_targets.update(targets)
-        if vlan.get("gateway"):
-            valid_targets.add(vlan["gateway"])
-    for target in targets_requested:
-        if target not in valid_targets:
-            return jsonify({"error": f"Target not in config: {target}"}), 400
-
-    management_ip = cfg.get("general", {}).get("management_ip", "0.0.0.0")
-    interface = cfg.get("general", {}).get("interface", "eth1")
-
     def _run_trigger():
         hopper = _state.get("hopper")
         stop_event = _state.get("stop_event")
         if stop_event:
             stop_event.clear()
-        if hopper:
-            hopper._state = "attacking"
         try:
+            hop_result = hopper.hop_to_vlan(vlan_id)
+            if hop_result["status"] != "ready":
+                return
+
+            vlan_ip = hop_result["ip"]
+            vlan_iface = hop_result["iface"]
+            hosts = hop_result["hosts"]
+
+            if not hosts:
+                return
+
+            hopper._state = "attacking"
             built = build_modules(
-                source_ip=management_ip,
-                interface=interface,
+                source_ip=vlan_ip,
+                interface=vlan_iface,
                 config=cfg,
                 module_filter=modules_requested,
             )
-            run_once(built, targets_requested, cfg, stop_event=stop_event)
+            run_once(built, hosts, cfg, stop_event=stop_event)
         finally:
             if hopper:
+                hopper.teardown_current()
                 hopper._state = "idle"
 
     t = threading.Thread(target=_run_trigger, daemon=True)
@@ -326,7 +330,7 @@ def api_trigger():
     return jsonify({
         "status": "triggered",
         "modules": modules_requested,
-        "targets": targets_requested,
+        "vlan_id": vlan_id,
     })
 
 

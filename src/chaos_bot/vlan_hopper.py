@@ -10,6 +10,7 @@ import signal
 import subprocess
 import time
 
+from chaos_bot.discovery import discover_hosts, gateway_to_subnet
 from chaos_bot.lease_db import LeaseDB
 from chaos_bot.logger import get_logger
 
@@ -82,55 +83,8 @@ class VlanHopper:
                     return parts[i + 1].split("/")[0]
         return None
 
-    def _setup_policy_routing(self, ip: str, gateway: str, iface: str) -> None:
-        """Add policy routing so attack traffic uses the VLAN interface."""
-        self._run_cmd(["ip", "rule", "add", "from", ip, "table", "attack"], check=False)
-        self._run_cmd(["ip", "route", "add", "default", "via", gateway,
-                        "dev", iface, "table", "attack"], check=False)
-
-    def _teardown(self, vlan_id: int, ip: str | None, iface: str) -> None:
-        """Clean up: release DHCP, flush routes, delete interface."""
-        self.log.info(f"Tearing down VLAN {vlan_id}", extra={
-            "bot_module": "vlan_hopper", "vlan_id": vlan_id
-        })
-        if ip:
-            self._run_cmd(["ip", "rule", "del", "from", ip, "table", "attack"], check=False)
-        self._run_cmd(["ip", "route", "flush", "table", "attack"], check=False)
-        self._run_cmd(["dhclient", "-r", iface], check=False)
-        self._run_cmd(["ip", "link", "set", iface, "down"], check=False)
-        self._run_cmd(["ip", "link", "delete", iface], check=False)
-        self._current_vlan = None
-        self._current_iface = None
-        self._current_ip = None
-        self._state = "cooldown"
-
-    def hop_once(self, vlan_filter: list[int] | None = None) -> dict:
-        """Execute a single VLAN hop cycle.
-
-        Args:
-            vlan_filter: If provided, only hop to VLANs with these IDs.
-        """
-        available_vlans = self.vlans
-        if vlan_filter is not None:
-            available_vlans = [v for v in self.vlans if v["id"] in vlan_filter]
-            if not available_vlans:
-                self.log.error("No VLANs match filter", extra={"bot_module": "vlan_hopper"})
-                return {"status": "error", "message": "No VLANs match filter"}
-        vlan = random.choice(available_vlans)
-        vlan_id = vlan["id"]
-        gateway = vlan.get("gateway", "")
-        targets = vlan.get("targets") or []
-
-        self.log.info(f"Hopping to VLAN {vlan_id} ({vlan.get('name', '')})", extra={
-            "bot_module": "vlan_hopper", "vlan_id": vlan_id
-        })
-        self._state = "hopping"
-        self._current_vlan = vlan_id
-
-        iface = self._create_vlan_iface(vlan_id)
-        self._current_iface = iface
-
-        # DHCP with retry — try for a different IP but accept duplicate after retries
+    def _obtain_dhcp_with_retry(self, iface: str, vlan_id: int) -> str | None:
+        """DHCP with retry — try for a different IP but accept duplicate after retries."""
         ip = None
         last_ip = None
         for attempt in range(3):
@@ -158,6 +112,65 @@ class VlanHopper:
             # Re-obtain the lease we released
             ip = self._obtain_dhcp(iface) or last_ip
 
+        return ip
+
+    def _setup_policy_routing(self, ip: str, gateway: str, iface: str) -> None:
+        """Add policy routing so attack traffic uses the VLAN interface."""
+        self._run_cmd(["ip", "rule", "add", "from", ip, "table", "attack"], check=False)
+        self._run_cmd(["ip", "route", "add", "default", "via", gateway,
+                        "dev", iface, "table", "attack"], check=False)
+
+    def _teardown(self, vlan_id: int, ip: str | None, iface: str) -> None:
+        """Clean up: release DHCP, flush routes, delete interface."""
+        self.log.info(f"Tearing down VLAN {vlan_id}", extra={
+            "bot_module": "vlan_hopper", "vlan_id": vlan_id
+        })
+        if ip:
+            self._run_cmd(["ip", "rule", "del", "from", ip, "table", "attack"], check=False)
+        self._run_cmd(["ip", "route", "flush", "table", "attack"], check=False)
+        self._run_cmd(["dhclient", "-r", iface], check=False)
+        self._run_cmd(["ip", "link", "set", iface, "down"], check=False)
+        self._run_cmd(["ip", "link", "delete", iface], check=False)
+        self._current_vlan = None
+        self._current_iface = None
+        self._current_ip = None
+        self._state = "cooldown"
+
+    def teardown_current(self) -> None:
+        """Public teardown of current VLAN interface. Idempotent."""
+        if self._current_iface and self._current_vlan:
+            self._teardown(self._current_vlan, self._current_ip, self._current_iface)
+
+    def hop_to_vlan(self, vlan_id: int) -> dict:
+        """Hop to a specific VLAN, discover hosts, but do NOT attack or tear down.
+
+        Caller is responsible for calling teardown_current() when done.
+
+        Returns:
+            dict with status, vlan_id, ip, iface, gateway, hosts
+        """
+        vlan = None
+        for v in self.vlans:
+            if v["id"] == vlan_id:
+                vlan = v
+                break
+        if not vlan:
+            return {"status": "error", "message": f"VLAN {vlan_id} not in config"}
+
+        gateway = vlan.get("gateway", "")
+        static_targets = vlan.get("targets") or []
+
+        self.log.info(f"Hopping to VLAN {vlan_id} ({vlan.get('name', '')})", extra={
+            "bot_module": "vlan_hopper", "vlan_id": vlan_id
+        })
+        self._state = "hopping"
+        self._current_vlan = vlan_id
+
+        iface = self._create_vlan_iface(vlan_id)
+        self._current_iface = iface
+
+        ip = self._obtain_dhcp_with_retry(iface, vlan_id)
+
         if not ip:
             self.log.error(f"Failed to obtain IP on VLAN {vlan_id}", extra={
                 "bot_module": "vlan_hopper", "vlan_id": vlan_id
@@ -173,6 +186,90 @@ class VlanHopper:
         # Policy routing
         if gateway:
             self._setup_policy_routing(ip, gateway, iface)
+
+        # Discover live hosts
+        hosts = []
+        if gateway:
+            subnet = gateway_to_subnet(gateway)
+            excluded = [gateway]
+            hosts = discover_hosts(subnet, iface, ip, excluded=excluded,
+                                   dry_run=self.dry_run)
+
+        # Fallback to static targets if discovery finds nothing
+        if not hosts and static_targets:
+            self.log.info(f"Discovery found no hosts, falling back to {len(static_targets)} static target(s)",
+                          extra={"bot_module": "vlan_hopper", "vlan_id": vlan_id})
+            hosts = list(static_targets)
+
+        return {
+            "status": "ready",
+            "vlan_id": vlan_id,
+            "ip": ip,
+            "iface": iface,
+            "gateway": gateway,
+            "hosts": hosts,
+        }
+
+    def hop_once(self, vlan_filter: list[int] | None = None) -> dict:
+        """Execute a single VLAN hop cycle.
+
+        Args:
+            vlan_filter: If provided, only hop to VLANs with these IDs.
+        """
+        available_vlans = self.vlans
+        if vlan_filter is not None:
+            available_vlans = [v for v in self.vlans if v["id"] in vlan_filter]
+            if not available_vlans:
+                self.log.error("No VLANs match filter", extra={"bot_module": "vlan_hopper"})
+                return {"status": "error", "message": "No VLANs match filter"}
+        vlan = random.choice(available_vlans)
+        vlan_id = vlan["id"]
+        gateway = vlan.get("gateway", "")
+        static_targets = vlan.get("targets") or []
+
+        self.log.info(f"Hopping to VLAN {vlan_id} ({vlan.get('name', '')})", extra={
+            "bot_module": "vlan_hopper", "vlan_id": vlan_id
+        })
+        self._state = "hopping"
+        self._current_vlan = vlan_id
+
+        iface = self._create_vlan_iface(vlan_id)
+        self._current_iface = iface
+
+        ip = self._obtain_dhcp_with_retry(iface, vlan_id)
+
+        if not ip:
+            self.log.error(f"Failed to obtain IP on VLAN {vlan_id}", extra={
+                "bot_module": "vlan_hopper", "vlan_id": vlan_id
+            })
+            self._teardown(vlan_id, None, iface)
+            return {"status": "error", "vlan_id": vlan_id, "message": "DHCP failed"}
+
+        self._current_ip = ip
+        self.log.info(f"Got IP {ip} on VLAN {vlan_id}", extra={
+            "bot_module": "vlan_hopper", "vlan_id": vlan_id, "source_ip": ip
+        })
+
+        # Policy routing
+        if gateway:
+            self._setup_policy_routing(ip, gateway, iface)
+
+        # Discover live hosts, fallback to static targets
+        targets = []
+        if gateway:
+            subnet = gateway_to_subnet(gateway)
+            excluded = [gateway]
+            targets = discover_hosts(subnet, iface, ip, excluded=excluded,
+                                     dry_run=self.dry_run)
+        if not targets:
+            targets = list(static_targets)
+
+        if not targets:
+            self.log.warning(f"No targets found on VLAN {vlan_id}, skipping attack",
+                             extra={"bot_module": "vlan_hopper", "vlan_id": vlan_id})
+            self._teardown(vlan_id, ip, iface)
+            return {"status": "skipped", "vlan_id": vlan_id, "ip": ip,
+                    "message": "No targets found"}
 
         # Bind modules to VLAN source IP and interface
         for mod in self.modules.values():

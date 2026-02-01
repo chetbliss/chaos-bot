@@ -169,13 +169,11 @@ function loadData() {
         .then(function(data) {
             _vlans = data.vlans || [];
             var sel = document.getElementById('attack-vlan');
-            sel.innerHTML = '<option value="all">All VLANs</option>';
+            sel.innerHTML = '<option value="">Select a VLAN</option>';
             _vlans.forEach(function(v) {
                 var opt = document.createElement('option');
                 opt.value = v.id;
-                var targets = v.targets || [];
-                var count = targets.length === 1 && targets[0].indexOf('/') !== -1 ? 'subnet' : targets.length + ' hosts';
-                opt.textContent = 'VLAN ' + v.id + ' - ' + v.name + ' (' + count + ')';
+                opt.textContent = 'VLAN ' + v.id + ' - ' + v.name;
                 sel.appendChild(opt);
             });
 
@@ -224,63 +222,39 @@ function onVlanChange() {
     var div = document.getElementById('attack-targets');
     var val = sel.value;
 
-    if (val === 'all') {
-        var total = 0;
-        _vlans.forEach(function(v) { total += (v.targets || []).length; });
-        div.textContent = 'All targets across ' + _vlans.length + ' VLANs (' + total + ' entries)';
-        return;
-    }
+    if (!val) { div.textContent = 'Select a VLAN'; return; }
 
     var vlan = _vlans.find(function(v) { return v.id == val; });
-    if (!vlan) { div.textContent = 'No VLAN selected'; return; }
+    if (!vlan) { div.textContent = 'Select a VLAN'; return; }
 
-    var targets = vlan.targets || [];
-    if (targets.length === 0) {
-        div.textContent = 'No targets on VLAN ' + vlan.id;
-    } else {
-        div.textContent = targets.join(', ');
-    }
+    div.textContent = 'Will scan ' + (vlan.gateway ? vlan.gateway.replace(/\.\d+$/, '.0/24') : 'subnet') + ' for live hosts';
 }
 
 function getSelectedModules() {
     return Array.from(document.querySelectorAll('.module-cb:checked')).map(function(cb) { return cb.value; });
 }
 
-function getTargetsForVlan() {
-    var sel = document.getElementById('attack-vlan');
-    var val = sel.value;
-    var targets = [];
-    if (val === 'all') {
-        _vlans.forEach(function(v) {
-            (v.targets || []).forEach(function(t) { targets.push(t); });
-        });
-    } else {
-        var vlan = _vlans.find(function(v) { return v.id == val; });
-        if (vlan) targets = vlan.targets || [];
-    }
-    return targets;
-}
-
 function runAttack() {
     var modules = getSelectedModules();
-    var targets = getTargetsForVlan();
+    var sel = document.getElementById('attack-vlan');
+    var vlanId = sel.value;
     var feedback = document.getElementById('attack-feedback');
 
     if (modules.length === 0) { feedback.textContent = 'Select at least one module'; feedback.style.color = 'var(--red)'; return; }
-    if (targets.length === 0) { feedback.textContent = 'No targets for selected VLAN'; feedback.style.color = 'var(--red)'; return; }
+    if (!vlanId) { feedback.textContent = 'Select a VLAN'; feedback.style.color = 'var(--red)'; return; }
 
-    feedback.textContent = 'Running...';
+    feedback.textContent = 'Hopping to VLAN ' + vlanId + ' and discovering hosts...';
     feedback.style.color = 'var(--yellow)';
 
     fetch('/api/v1/trigger', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({modules: modules, targets: targets})
+        body: JSON.stringify({modules: modules, vlan_id: parseInt(vlanId)})
     })
     .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
         if (res.ok) {
-            feedback.textContent = 'Running: ' + res.data.modules.join(', ') + ' on ' + res.data.targets.length + ' target(s)';
+            feedback.textContent = 'Running: ' + res.data.modules.join(', ') + ' on VLAN ' + res.data.vlan_id;
             feedback.style.color = 'var(--green)';
         } else {
             feedback.textContent = res.data.error || 'Error';
@@ -297,12 +271,12 @@ function runAttack() {
 function runHop() {
     var sel = document.getElementById('attack-vlan');
     var val = sel.value;
-    if (val === 'all') {
+    if (!val) {
         apiPost('/api/v1/hop');
     } else {
         apiPost('/api/v1/start', {vlans: [parseInt(val)], once: true});
     }
-    document.getElementById('attack-feedback').textContent = 'Hop triggered to VLAN ' + (val === 'all' ? '(random)' : val);
+    document.getElementById('attack-feedback').textContent = 'Hop triggered to VLAN ' + (!val ? '(random)' : val);
     document.getElementById('attack-feedback').style.color = 'var(--yellow)';
 }
 
