@@ -1,6 +1,8 @@
 """Base module ABC for chaos-bot attack modules."""
 
+import ipaddress
 import logging
+import random
 import socket
 from abc import ABC, abstractmethod
 
@@ -30,6 +32,28 @@ class BaseModule(ABC):
         if extra:
             args.extend(extra)
         return args
+
+    def _expand_targets(self, targets: list[str], sample_size: int = 10) -> list[str]:
+        """Expand CIDR targets into individual IPs.
+
+        Non-CIDR targets pass through unchanged. CIDR subnets are expanded
+        to a random sample of host IPs (excluding network and broadcast).
+        """
+        expanded = []
+        for t in targets:
+            if "/" in t:
+                try:
+                    net = ipaddress.ip_network(t, strict=False)
+                    hosts = [str(ip) for ip in net.hosts()]
+                    if len(hosts) <= sample_size:
+                        expanded.extend(hosts)
+                    else:
+                        expanded.extend(random.sample(hosts, sample_size))
+                except ValueError:
+                    expanded.append(t)
+            else:
+                expanded.append(t)
+        return expanded
 
     @abstractmethod
     def run(self, targets: list[str]) -> dict:

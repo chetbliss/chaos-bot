@@ -99,7 +99,7 @@ class HttpProbe(BaseModule):
         # Disable SSL warnings for probe traffic
         requests.packages.urllib3.disable_warnings()
 
-        shuffled = [t for t in targets if "/" not in t]
+        shuffled = self._expand_targets(targets, sample_size=5)
         random.shuffle(shuffled)
         results = []
 
