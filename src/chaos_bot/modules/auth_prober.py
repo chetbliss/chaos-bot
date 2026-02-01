@@ -24,7 +24,7 @@ class AuthProber(BaseModule):
         username = creds.get("username", "chaos-bot")
         password = creds.get("password", "NotARealPassword")
 
-        shuffled = list(targets)
+        shuffled = [t for t in targets if "/" not in t]
         random.shuffle(shuffled)
         results = []
 

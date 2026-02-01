@@ -81,7 +81,9 @@ class NetScanner(BaseModule):
         cmd = self._nmap_args(extra_args + [target])
         self.log.debug(f"Running: {' '.join(cmd)}", extra={"bot_module": "net_scanner"})
 
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        # Subnet scans need longer timeout
+        timeout = 600 if "/" in target else 120
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
         # Parse basic results from stdout
         hosts_up = 0
