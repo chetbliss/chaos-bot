@@ -44,7 +44,7 @@ def discover_hosts(subnet: str, interface: str, source_ip: str,
     log.info(f"Discovering hosts: {' '.join(cmd)}", extra={"bot_module": "discovery"})
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
     except subprocess.TimeoutExpired:
         log.warning("Host discovery timed out", extra={"bot_module": "discovery"})
         return []
