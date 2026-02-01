@@ -31,42 +31,44 @@
 </div>
 
 <div class="card">
-    <h2>Controls</h2>
-    <div class="controls">
-        <button class="btn btn-primary" data-action="start" onclick="startDaemon()">Start Daemon</button>
-        <button class="btn btn-danger" data-action="stop" onclick="apiPost('/api/v1/stop')">Stop</button>
-        <button class="btn" data-action="hop" onclick="apiPost('/api/v1/hop')">Single Hop</button>
-    </div>
-</div>
-
-<div class="grid grid-2">
-    <div class="card picker-card">
-        <h2>Module Picker</h2>
-        <div class="module-list" id="module-list">
-            <div style="color: var(--text-muted);">Loading...</div>
+    <h2>Attack</h2>
+    <div class="attack-form">
+        <div class="attack-row">
+            <label class="attack-label">Target VLAN</label>
+            <select id="attack-vlan" onchange="onVlanChange()">
+                <option value="">Loading...</option>
+            </select>
+        </div>
+        <div class="attack-row">
+            <label class="attack-label">Modules</label>
+            <div id="attack-modules" class="checkbox-row"></div>
+        </div>
+        <div class="attack-row">
+            <label class="attack-label">Action</label>
+            <div class="controls">
+                <button class="btn btn-primary" id="btn-attack" onclick="runAttack()">Run Attack</button>
+                <button class="btn" id="btn-hop" onclick="runHop()">Hop to VLAN</button>
+                <button class="btn btn-danger" id="btn-stop" onclick="apiPost('/api/v1/stop')">Stop</button>
+            </div>
+        </div>
+        <div class="attack-row">
+            <label class="attack-label">Targets</label>
+            <div id="attack-targets" class="target-summary">Select a VLAN</div>
         </div>
     </div>
-    <div class="card picker-card">
-        <h2>VLAN Picker</h2>
-        <div class="module-list" id="vlan-picker">
-            <div style="color: var(--text-muted);">Loading...</div>
-        </div>
-    </div>
-</div>
-
-<div class="card picker-card">
-    <h2>Target Picker</h2>
-    <div id="target-picker">
-        <div style="color: var(--text-muted);">Loading...</div>
-    </div>
+    <div class="feedback" id="attack-feedback"></div>
 </div>
 
 <div class="card">
-    <h2>Manual Trigger</h2>
-    <div class="controls">
-        <button class="btn btn-trigger" id="btn-trigger" onclick="triggerModules()">Run Selected Modules on Selected Targets</button>
+    <h2>Daemon Mode</h2>
+    <div class="attack-row" style="margin-bottom: 0.75rem;">
+        <label class="attack-label">VLANs to hop</label>
+        <div id="daemon-vlans" class="checkbox-row"></div>
     </div>
-    <div class="feedback" id="trigger-feedback"></div>
+    <div class="controls">
+        <button class="btn btn-primary" id="btn-daemon-start" onclick="startDaemon()">Start Daemon</button>
+        <button class="btn btn-danger" id="btn-daemon-stop" onclick="apiPost('/api/v1/stop')">Stop Daemon</button>
+    </div>
 </div>
 
 <div class="card">
@@ -118,67 +120,93 @@
 
 {% block scripts %}
 <script>
+var _vlans = [];
+var _modules = [];
+
 function refreshStatus() {
     fetch('/api/v1/status')
-        .then(r => r.json())
-        .then(data => {
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
             document.getElementById('status-text').textContent = data.status || 'idle';
             document.getElementById('vlan-text').textContent = data.current_vlan || '--';
             document.getElementById('ip-text').textContent = data.current_ip || '--';
             document.getElementById('cycle-text').textContent = data.cycle_count || 0;
 
-            const el = document.getElementById('status-text');
-            el.className = 'value';
+            var el = document.getElementById('status-text');
             if (data.status === 'attacking') el.style.color = '#f85149';
             else if (data.status === 'hopping') el.style.color = '#d29922';
             else if (data.status === 'cooldown') el.style.color = '#3fb950';
             else el.style.color = '#8b949e';
 
-            // State-aware button disabling
-            var btnStart = document.querySelector('[data-action="start"]');
-            var btnStop = document.querySelector('[data-action="stop"]');
-            var btnHop = document.querySelector('[data-action="hop"]');
-            var btnTrigger = document.getElementById('btn-trigger');
             var busy = (data.status === 'attacking' || data.status === 'hopping');
-            if (btnStart) btnStart.disabled = busy;
-            if (btnStop) btnStop.disabled = (data.status === 'idle');
-            if (btnHop) btnHop.disabled = busy;
-            if (btnTrigger) btnTrigger.disabled = busy;
+            setDisabled('btn-attack', busy);
+            setDisabled('btn-hop', busy);
+            setDisabled('btn-stop', data.status === 'idle');
+            setDisabled('btn-daemon-start', busy);
+            setDisabled('btn-daemon-stop', data.status === 'idle');
         })
-        .catch(() => {});
+        .catch(function() {});
+}
+
+function setDisabled(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.disabled = val;
 }
 
 function apiPost(url, body) {
     var opts = {method: 'POST', headers: {'Content-Type': 'application/json'}};
     if (body) opts.body = JSON.stringify(body);
     fetch(url, opts)
-        .then(r => r.json())
-        .then(data => { console.log(data); refreshStatus(); })
-        .catch(err => console.error(err));
+        .then(function(r) { return r.json(); })
+        .then(function(data) { console.log(data); refreshStatus(); })
+        .catch(function(err) { console.error(err); });
 }
 
-function startDaemon() {
-    var vlans = getSelectedVlans();
-    apiPost('/api/v1/start', vlans.length > 0 ? {vlans: vlans} : null);
-}
+function loadData() {
+    // Load VLANs and targets
+    fetch('/api/v1/targets')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            _vlans = data.vlans || [];
+            var sel = document.getElementById('attack-vlan');
+            sel.innerHTML = '<option value="all">All VLANs</option>';
+            _vlans.forEach(function(v) {
+                var opt = document.createElement('option');
+                opt.value = v.id;
+                var targets = v.targets || [];
+                var count = targets.length === 1 && targets[0].indexOf('/') !== -1 ? 'subnet' : targets.length + ' hosts';
+                opt.textContent = 'VLAN ' + v.id + ' - ' + v.name + ' (' + count + ')';
+                sel.appendChild(opt);
+            });
 
-function getSelectedVlans() {
-    var checked = document.querySelectorAll('#vlan-picker input[type="checkbox"]:checked');
-    return Array.from(checked).map(function(cb) { return parseInt(cb.value); });
-}
-
-function loadModules() {
-    fetch('/api/v1/modules')
-        .then(r => r.json())
-        .then(data => {
-            var container = document.getElementById('module-list');
-            container.innerHTML = '';
-            data.modules.forEach(function(mod) {
+            // Daemon VLAN checkboxes
+            var daemonDiv = document.getElementById('daemon-vlans');
+            daemonDiv.innerHTML = '';
+            _vlans.forEach(function(v) {
                 var label = document.createElement('label');
-                label.style.display = 'flex';
-                label.style.alignItems = 'center';
-                label.style.gap = '0.5rem';
-                label.style.padding = '0.25rem 0';
+                label.className = 'cb-label';
+                var cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.value = v.id;
+                cb.checked = true;
+                label.appendChild(cb);
+                label.appendChild(document.createTextNode('VLAN ' + v.id + ' - ' + v.name));
+                daemonDiv.appendChild(label);
+            });
+
+            onVlanChange();
+        });
+
+    // Load modules
+    fetch('/api/v1/modules')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            _modules = data.modules || [];
+            var container = document.getElementById('attack-modules');
+            container.innerHTML = '';
+            _modules.forEach(function(mod) {
+                var label = document.createElement('label');
+                label.className = 'cb-label';
                 var cb = document.createElement('input');
                 cb.type = 'checkbox';
                 cb.value = mod.name;
@@ -188,108 +216,60 @@ function loadModules() {
                 label.appendChild(document.createTextNode(mod.name));
                 container.appendChild(label);
             });
-        })
-        .catch(() => {});
+        });
 }
 
-function loadTargets() {
-    fetch('/api/v1/targets')
-        .then(r => r.json())
-        .then(data => {
-            // Populate VLAN picker
-            var vlanPicker = document.getElementById('vlan-picker');
-            vlanPicker.innerHTML = '';
-            data.vlans.forEach(function(vlan) {
-                var label = document.createElement('label');
-                label.style.display = 'flex';
-                label.style.alignItems = 'center';
-                label.style.gap = '0.5rem';
-                label.style.padding = '0.25rem 0';
-                var cb = document.createElement('input');
-                cb.type = 'checkbox';
-                cb.value = vlan.id;
-                cb.checked = true;
-                label.appendChild(cb);
-                label.appendChild(document.createTextNode('VLAN ' + vlan.id + ' — ' + vlan.name));
-                vlanPicker.appendChild(label);
-            });
+function onVlanChange() {
+    var sel = document.getElementById('attack-vlan');
+    var div = document.getElementById('attack-targets');
+    var val = sel.value;
 
-            // Populate target picker
-            var targetPicker = document.getElementById('target-picker');
-            targetPicker.innerHTML = '';
-            data.vlans.forEach(function(vlan) {
-                var group = document.createElement('div');
-                group.className = 'vlan-group';
+    if (val === 'all') {
+        var total = 0;
+        _vlans.forEach(function(v) { total += (v.targets || []).length; });
+        div.textContent = 'All targets across ' + _vlans.length + ' VLANs (' + total + ' entries)';
+        return;
+    }
 
-                var header = document.createElement('div');
-                header.className = 'vlan-group-header';
-                header.textContent = 'VLAN ' + vlan.id + ' — ' + vlan.name;
-                header.onclick = function() {
-                    var list = group.querySelector('.target-list');
-                    list.style.display = list.style.display === 'none' ? 'block' : 'none';
-                };
-                group.appendChild(header);
+    var vlan = _vlans.find(function(v) { return v.id == val; });
+    if (!vlan) { div.textContent = 'No VLAN selected'; return; }
 
-                var list = document.createElement('div');
-                list.className = 'target-list';
-
-                var targets = vlan.targets || [];
-                if (targets.length === 0 && !vlan.gateway) {
-                    var empty = document.createElement('div');
-                    empty.style.color = 'var(--text-muted)';
-                    empty.style.padding = '0.25rem 0';
-                    empty.textContent = 'No targets';
-                    list.appendChild(empty);
-                } else {
-                    var checkAll = document.createElement('a');
-                    checkAll.className = 'check-all';
-                    checkAll.href = '#';
-                    checkAll.textContent = 'Select All';
-                    checkAll.onclick = function(e) {
-                        e.preventDefault();
-                        var cbs = list.querySelectorAll('input[type="checkbox"]');
-                        var allChecked = Array.from(cbs).every(function(c) { return c.checked; });
-                        cbs.forEach(function(c) { c.checked = !allChecked; });
-                        checkAll.textContent = allChecked ? 'Select All' : 'Deselect All';
-                    };
-                    list.appendChild(checkAll);
-
-                    var allTargets = targets.slice();
-                    if (vlan.gateway) allTargets.unshift(vlan.gateway + ' (gw)');
-                    allTargets.forEach(function(target) {
-                        var ip = target.replace(' (gw)', '');
-                        var label = document.createElement('label');
-                        label.style.display = 'flex';
-                        label.style.alignItems = 'center';
-                        label.style.gap = '0.5rem';
-                        label.style.padding = '0.15rem 0';
-                        var cb = document.createElement('input');
-                        cb.type = 'checkbox';
-                        cb.value = ip;
-                        cb.className = 'target-cb';
-                        cb.checked = true;
-                        label.appendChild(cb);
-                        label.appendChild(document.createTextNode(target));
-                        list.appendChild(label);
-                    });
-                }
-
-                group.appendChild(list);
-                targetPicker.appendChild(group);
-            });
-        })
-        .catch(() => {});
+    var targets = vlan.targets || [];
+    if (targets.length === 0) {
+        div.textContent = 'No targets on VLAN ' + vlan.id;
+    } else {
+        div.textContent = targets.join(', ');
+    }
 }
 
-function triggerModules() {
-    var modules = Array.from(document.querySelectorAll('.module-cb:checked')).map(function(cb) { return cb.value; });
-    var targets = Array.from(document.querySelectorAll('.target-cb:checked')).map(function(cb) { return cb.value; });
-    var feedback = document.getElementById('trigger-feedback');
+function getSelectedModules() {
+    return Array.from(document.querySelectorAll('.module-cb:checked')).map(function(cb) { return cb.value; });
+}
 
-    if (modules.length === 0) { feedback.textContent = 'Error: No modules selected'; feedback.style.color = 'var(--red)'; return; }
-    if (targets.length === 0) { feedback.textContent = 'Error: No targets selected'; feedback.style.color = 'var(--red)'; return; }
+function getTargetsForVlan() {
+    var sel = document.getElementById('attack-vlan');
+    var val = sel.value;
+    var targets = [];
+    if (val === 'all') {
+        _vlans.forEach(function(v) {
+            (v.targets || []).forEach(function(t) { targets.push(t); });
+        });
+    } else {
+        var vlan = _vlans.find(function(v) { return v.id == val; });
+        if (vlan) targets = vlan.targets || [];
+    }
+    return targets;
+}
 
-    feedback.textContent = 'Triggering...';
+function runAttack() {
+    var modules = getSelectedModules();
+    var targets = getTargetsForVlan();
+    var feedback = document.getElementById('attack-feedback');
+
+    if (modules.length === 0) { feedback.textContent = 'Select at least one module'; feedback.style.color = 'var(--red)'; return; }
+    if (targets.length === 0) { feedback.textContent = 'No targets for selected VLAN'; feedback.style.color = 'var(--red)'; return; }
+
+    feedback.textContent = 'Running...';
     feedback.style.color = 'var(--yellow)';
 
     fetch('/api/v1/trigger', {
@@ -300,10 +280,10 @@ function triggerModules() {
     .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
         if (res.ok) {
-            feedback.textContent = 'Triggered: ' + res.data.modules.join(', ') + ' → ' + res.data.targets.length + ' target(s)';
+            feedback.textContent = 'Running: ' + res.data.modules.join(', ') + ' on ' + res.data.targets.length + ' target(s)';
             feedback.style.color = 'var(--green)';
         } else {
-            feedback.textContent = 'Error: ' + (res.data.error || 'Unknown error');
+            feedback.textContent = res.data.error || 'Error';
             feedback.style.color = 'var(--red)';
         }
         refreshStatus();
@@ -312,6 +292,24 @@ function triggerModules() {
         feedback.textContent = 'Error: ' + err;
         feedback.style.color = 'var(--red)';
     });
+}
+
+function runHop() {
+    var sel = document.getElementById('attack-vlan');
+    var val = sel.value;
+    if (val === 'all') {
+        apiPost('/api/v1/hop');
+    } else {
+        apiPost('/api/v1/start', {vlans: [parseInt(val)], once: true});
+    }
+    document.getElementById('attack-feedback').textContent = 'Hop triggered to VLAN ' + (val === 'all' ? '(random)' : val);
+    document.getElementById('attack-feedback').style.color = 'var(--yellow)';
+}
+
+function startDaemon() {
+    var checked = document.querySelectorAll('#daemon-vlans input[type="checkbox"]:checked');
+    var vlans = Array.from(checked).map(function(cb) { return parseInt(cb.value); });
+    apiPost('/api/v1/start', vlans.length > 0 ? {vlans: vlans} : null);
 }
 
 function loadAlerts(timeRange) {
@@ -326,7 +324,7 @@ function loadAlerts(timeRange) {
             if (!res.ok || res.data.error) {
                 var errMsg = res.data.error || 'Failed to load';
                 if (errMsg.indexOf('unreachable') !== -1 || errMsg.indexOf('timed out') !== -1) {
-                    errMsg = 'EveBox unavailable — check that port 5636 is accessible from management VLAN';
+                    errMsg = 'EveBox unavailable';
                 }
                 summary.innerHTML = '<span style="color: var(--yellow);">' + errMsg + '</span>';
                 table.style.display = 'none';
@@ -334,13 +332,12 @@ function loadAlerts(timeRange) {
             }
             var alerts = res.data.events || res.data.alerts || [];
             if (alerts.length === 0) {
-                summary.innerHTML = '<span style="color: var(--green);">No alerts in this time range</span>';
+                summary.innerHTML = '<span style="color: var(--green);">No alerts</span>';
                 table.style.display = 'none';
                 return;
             }
             var total = alerts.reduce(function(sum, a) {
-                var meta = a._metadata || {};
-                return sum + (meta.count || a.count || 1);
+                return sum + ((a._metadata || {}).count || 1);
             }, 0);
             summary.innerHTML = '<span style="color: var(--red);">' + total + ' alert(s) in ' + alerts.length + ' group(s)</span>';
             tbody.innerHTML = '';
@@ -348,16 +345,10 @@ function loadAlerts(timeRange) {
                 var source = alert._source || {};
                 var meta = alert._metadata || {};
                 var alertInfo = source.alert || {};
-                var src = source.src_ip || '--';
-                var dst = source.dest_ip || '--';
-                var sig = alertInfo.signature || '--';
-                var count = meta.count || 1;
-                var ts = meta.max_timestamp || source.timestamp || '--';
-                if (ts !== '--') {
-                    try { ts = new Date(ts).toLocaleString(); } catch(e) {}
-                }
                 var tr = document.createElement('tr');
-                tr.innerHTML = '<td>' + sig + '</td><td>' + src + '</td><td>' + dst + '</td><td>' + count + '</td><td>' + ts + '</td>';
+                var ts = meta.max_timestamp || source.timestamp || '--';
+                if (ts !== '--') { try { ts = new Date(ts).toLocaleString(); } catch(e) {} }
+                tr.innerHTML = '<td>' + (alertInfo.signature || '--') + '</td><td>' + (source.src_ip || '--') + '</td><td>' + (source.dest_ip || '--') + '</td><td>' + (meta.count || 1) + '</td><td>' + ts + '</td>';
                 tbody.appendChild(tr);
             });
             table.style.display = 'table';
@@ -368,7 +359,7 @@ function loadAlerts(timeRange) {
         });
 }
 
-// Live activity SSE stream on dashboard
+// Live activity SSE
 var activityLog = document.getElementById('activity-log');
 var activitySource = new EventSource('/api/v1/logs');
 activitySource.onmessage = function(e) {
@@ -376,11 +367,8 @@ activitySource.onmessage = function(e) {
         var entry = JSON.parse(e.data);
         var line = '[' + entry.timestamp.substring(11, 19) + '] ' + entry.level + ' ' + entry.module + ': ' + entry.message;
         activityLog.textContent += line + '\n';
-        // Keep last 100 lines
         var lines = activityLog.textContent.split('\n');
-        if (lines.length > 100) {
-            activityLog.textContent = lines.slice(-100).join('\n');
-        }
+        if (lines.length > 100) activityLog.textContent = lines.slice(-100).join('\n');
         activityLog.scrollTop = activityLog.scrollHeight;
     } catch(ex) {
         activityLog.textContent += e.data + '\n';
@@ -388,11 +376,10 @@ activitySource.onmessage = function(e) {
     }
 };
 activitySource.onerror = function() {
-    activityLog.textContent += '[connection lost - reconnecting...]\n';
+    activityLog.textContent += '[reconnecting...]\n';
 };
 
-loadModules();
-loadTargets();
+loadData();
 loadAlerts('86400s');
 refreshStatus();
 setInterval(refreshStatus, 3000);
