@@ -60,6 +60,15 @@ The API enforces state transitions:
 | `PUT /api/v1/config` | State is `attacking` (409) |
 | `POST /api/v1/stop` | Always allowed |
 
+## Notifications
+
+Apprise notifications via `http://10.10.10.3:8800/notify`. Sends alerts for:
+
+- **Cycle complete** — VLAN, IP, duration, modules run (both daemon and manual trigger)
+- **Errors** — hop failures, no hosts found, exceptions during trigger
+
+Configured in `config.yml` under `notifications`. Requires `enabled: true`.
+
 ## Metrics
 
 Prometheus metrics exposed on port 9100 (management NIC). Scrape target: `http://10.10.10.4:9100/metrics`.
@@ -68,16 +77,28 @@ Prometheus metrics exposed on port 9100 (management NIC). Scrape target: `http:/
 
 See `config.yml` for the default lab configuration. Key sections: `vlans`, `modules`, `schedule`, `credentials`, `notifications`, `metrics`, `web`, `evebox`.
 
+## Host Discovery
+
+Before attacking, chaos-bot runs an nmap ARP sweep (`nmap -sn -PR`) on the VLAN subnet to find live hosts. This applies to both manual trigger and daemon mode. The discovery process:
+
+1. Hop to VLAN (create 802.1Q sub-interface, obtain DHCP lease, set up policy routing)
+2. Run ARP sweep on /24 subnet from the VLAN IP (90s timeout)
+3. Exclude gateway and self from results
+4. Fall back to static targets from config if discovery finds nothing
+5. Skip attack if no targets at all
+
+This is critical for VLANs with DHCP hosts (e.g., VLAN 40 honeypot with metasploitable VMs) where IPs change between boots.
+
 ## VLAN Targets
 
-| VLAN | Name | Subnet | Targets |
+| VLAN | Name | Subnet | Discovery |
 |---|---|---|---|
-| 1 | management | 10.10.10.0/24 | Specific hosts (t420, pve01, pve02, pbs01, jenkins, aihub) |
-| 30 | servers | 10.30.30.0/24 | Specific hosts (dc1, dc2, secdocker) |
-| 31 | users | 10.31.31.0/24 | Full /24 subnet scan |
-| 32 | paw | 10.32.32.0/24 | Full /24 subnet scan |
-| 40 | honeypot | 172.16.40.0/24 | ARP discovery then attack live hosts |
-| 50 | untrusted | 172.16.50.0/24 | ARP discovery then attack live hosts |
+| 1 | management | 10.10.10.0/24 | ARP discovery, static fallback (t420, pve01, pve02, pbs01, jenkins, aihub) |
+| 30 | servers | 10.30.30.0/24 | ARP discovery, static fallback (dc1, dc2, secdocker) |
+| 31 | users | 10.31.31.0/24 | ARP discovery only |
+| 32 | paw | 10.32.32.0/24 | ARP discovery only |
+| 40 | honeypot | 172.16.40.0/24 | ARP discovery only (DHCP hosts, IPs change) |
+| 50 | untrusted | 172.16.50.0/24 | ARP discovery only (DHCP hosts, IPs change) |
 
 VLANs 20 (Corosync) and 21 (Replication) are excluded — never target cluster traffic.
 
@@ -105,6 +126,7 @@ pytest tests/ -v
 
 | Version | Date | Changes |
 |---|---|---|
+| 0.1.5 | 2026-02-01 | Apprise notifications for manual trigger (cycle summary on success, error on failure/no hosts). Increased nmap ARP discovery timeout to 90s for /24 subnets. Stale VLAN interface cleanup on hop (prevents crash if previous run left eth1.X behind). |
 | 0.1.4 | 2026-02-01 | Manual trigger hops to selected VLAN and attacks from VLAN IP (not management IP). Nmap ARP sweep discovers live hosts before attacking. Daemon mode also gets host discovery. New `discovery.py` module. Trigger API accepts `vlan_id` instead of `targets`. |
 | 0.1.3 | 2026-02-01 | CIDR target expansion for auth_prober and http_probe (random sample of 5 IPs from /24 subnets). Fixed Ansible handler: git clone now triggers service restart so code changes take effect immediately. |
 | 0.1.2 | 2026-01-31 | Redesigned dashboard (VLAN dropdown, module checkboxes, attack/daemon cards). Added VLAN 1 management targets. CIDR /24 subnet scanning. 28-port nmap at high intensity. Fixed source IP binding during VLAN hops. |
