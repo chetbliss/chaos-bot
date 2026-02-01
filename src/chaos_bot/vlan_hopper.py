@@ -119,7 +119,7 @@ class VlanHopper:
         vlan = random.choice(available_vlans)
         vlan_id = vlan["id"]
         gateway = vlan.get("gateway", "")
-        targets = vlan.get("targets", [])
+        targets = vlan.get("targets") or []
 
         self.log.info(f"Hopping to VLAN {vlan_id} ({vlan.get('name', '')})", extra={
             "bot_module": "vlan_hopper", "vlan_id": vlan_id
