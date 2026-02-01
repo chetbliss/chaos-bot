@@ -58,8 +58,10 @@ class VlanHopper:
         return subprocess.run(cmd, capture_output=True, text=True, check=check)
 
     def _create_vlan_iface(self, vlan_id: int) -> str:
-        """Create 802.1Q sub-interface."""
+        """Create 802.1Q sub-interface. Cleans up stale interface first."""
         iface = f"{self.interface}.{vlan_id}"
+        # Remove stale interface if it exists from a previous crashed run
+        self._run_cmd(["ip", "link", "delete", iface], check=False)
         self._run_cmd(["ip", "link", "add", "link", self.interface,
                         "name", iface, "type", "vlan", "id", str(vlan_id)])
         self._run_cmd(["ip", "link", "set", iface, "up"])

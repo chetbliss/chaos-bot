@@ -23,7 +23,7 @@ Automated red-team traffic generator for home-lab security monitoring validation
 Served on management NIC (default `10.10.10.4:8880`). Proxied via Caddy at `https://chaosbot.lab.chettv.com`.
 
 - **Dashboard** — current state (idle/attacking/hopping/cooldown), VLAN, source IP, cycle count
-- **Attack Card** — VLAN dropdown (All VLANs or specific), module checkboxes, Run Attack / Hop to VLAN / Stop buttons, target display updates on VLAN selection
+- **Attack Card** — VLAN dropdown, module checkboxes, Run Attack / Hop to VLAN / Stop buttons. Run Attack hops to the selected VLAN, discovers live hosts via nmap ARP sweep, and attacks from the VLAN IP
 - **Daemon Mode** — VLAN checkboxes for continuous hopping, Start/Stop Daemon buttons
 - **Suricata Alerts** — alert counts from EveBox API (last hour / 24h / 7d), grouped alert table, link to EveBox UI
 - **Live Activity** — real-time log stream via SSE
@@ -41,7 +41,7 @@ Served on management NIC (default `10.10.10.4:8880`). Proxied via Caddy at `http
 | POST | `/api/v1/hop` | Trigger single hop cycle |
 | GET | `/api/v1/modules` | Available modules and enabled state |
 | GET | `/api/v1/targets` | All targets grouped by VLAN |
-| POST | `/api/v1/trigger` | Run selected modules on selected targets (body: `{"modules": [...], "targets": [...]}`) |
+| POST | `/api/v1/trigger` | Hop to VLAN, discover live hosts, run selected modules from VLAN IP (body: `{"modules": [...], "vlan_id": 40}`) |
 | GET | `/api/v1/alerts` | Proxy Suricata alerts from EveBox (query param: `time_range=86400s`) |
 | GET | `/api/v1/history` | Lease history JSON |
 | GET | `/api/v1/config` | Current config |
@@ -76,16 +76,21 @@ See `config.yml` for the default lab configuration. Key sections: `vlans`, `modu
 | 30 | servers | 10.30.30.0/24 | Specific hosts (dc1, dc2, secdocker) |
 | 31 | users | 10.31.31.0/24 | Full /24 subnet scan |
 | 32 | paw | 10.32.32.0/24 | Full /24 subnet scan |
-| 40 | honeypot | 10.40.40.0/24 | Full /24 subnet scan |
-| 50 | untrusted | 10.50.50.0/24 | Full /24 subnet scan |
+| 40 | honeypot | 172.16.40.0/24 | ARP discovery then attack live hosts |
+| 50 | untrusted | 172.16.50.0/24 | ARP discovery then attack live hosts |
 
 VLANs 20 (Corosync) and 21 (Replication) are excluded — never target cluster traffic.
 
 ## Deployment
 
-Deployed via Ansible from the `chaosbot-stack` deployment in the homelab-migration repo. Jenkins job `chaosbot-stack` with `ACTION=setup` runs the playbook.
+Deployed via Ansible from the `chaosbot-stack` deployment in the homelab-migration repo. The Ansible role pulls the `chaosbot` branch of this repo.
 
-The Ansible role clones this repo to `/home/cbliss/chaos-bot`, creates a venv, installs the package, templates the config from inventory vars, and manages the systemd service. Code changes are auto-deployed: the git clone task and pip install both trigger a service restart via handler.
+The Ansible role clones this repo (branch `chaosbot`) to `/home/cbliss/chaos-bot`, creates a venv, installs the package, templates the config from inventory vars, and manages the systemd service. Code changes are auto-deployed: the git clone task and pip install both trigger a service restart via handler.
+
+```bash
+cd deployments/chaosbot-stack/ansible
+ANSIBLE_ROLES_PATH=./roles ansible-playbook playbooks/deploy-chaosbot.yml -i inventory/hosts.yml
+```
 
 ## Tests
 
@@ -94,12 +99,13 @@ source .venv/bin/activate
 pytest tests/ -v
 ```
 
-27 tests covering config loading, lease DB, module dry-run, and web API endpoints.
+31 tests covering config loading, lease DB, module dry-run, host discovery, and web API endpoints.
 
 ## Version History
 
 | Version | Date | Changes |
 |---|---|---|
+| 0.1.4 | 2026-02-01 | Manual trigger hops to selected VLAN and attacks from VLAN IP (not management IP). Nmap ARP sweep discovers live hosts before attacking. Daemon mode also gets host discovery. New `discovery.py` module. Trigger API accepts `vlan_id` instead of `targets`. |
 | 0.1.3 | 2026-02-01 | CIDR target expansion for auth_prober and http_probe (random sample of 5 IPs from /24 subnets). Fixed Ansible handler: git clone now triggers service restart so code changes take effect immediately. |
 | 0.1.2 | 2026-01-31 | Redesigned dashboard (VLAN dropdown, module checkboxes, attack/daemon cards). Added VLAN 1 management targets. CIDR /24 subnet scanning. 28-port nmap at high intensity. Fixed source IP binding during VLAN hops. |
 | 0.1.1 | 2026-01-31 | C2 dashboard: module/VLAN/target pickers, manual trigger, Suricata alerts (EveBox), state validation, VLAN filter for daemon |

@@ -320,6 +320,9 @@ def api_trigger():
                 module_filter=modules_requested,
             )
             run_once(built, hosts, cfg, stop_event=stop_event)
+        except Exception:
+            import traceback
+            traceback.print_exc()
         finally:
             if hopper:
                 hopper.teardown_current()
