@@ -174,6 +174,11 @@ class VlanHopper:
         if gateway:
             self._setup_policy_routing(ip, gateway, iface)
 
+        # Bind modules to VLAN source IP and interface
+        for mod in self.modules.values():
+            mod.source_ip = ip
+            mod.interface = iface
+
         # Run modules
         self._state = "attacking"
         start_time = time.time()
