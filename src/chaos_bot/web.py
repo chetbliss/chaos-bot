@@ -303,6 +303,10 @@ def api_trigger():
         try:
             hop_result = hopper.hop_to_vlan(vlan_id)
             if hop_result["status"] != "ready":
+                if hopper.notifier:
+                    hopper.notifier.send_error(
+                        f"Trigger failed: VLAN {vlan_id} — {hop_result.get('message', 'unknown')}"
+                    )
                 return
 
             vlan_ip = hop_result["ip"]
@@ -310,19 +314,39 @@ def api_trigger():
             hosts = hop_result["hosts"]
 
             if not hosts:
+                if hopper.notifier:
+                    hopper.notifier.send_error(
+                        f"Trigger: no hosts found on VLAN {vlan_id} ({vlan_ip})"
+                    )
                 return
 
             hopper._state = "attacking"
+            start_time = time.time()
             built = build_modules(
                 source_ip=vlan_ip,
                 interface=vlan_iface,
                 config=cfg,
                 module_filter=modules_requested,
             )
-            run_once(built, hosts, cfg, stop_event=stop_event)
+            results = run_once(built, hosts, cfg, stop_event=stop_event)
+            duration = time.time() - start_time
+
+            # Send Apprise notification (same as daemon hop_once)
+            if hopper.notifier:
+                summary = {
+                    "vlan_id": vlan_id,
+                    "ip": vlan_ip,
+                    "duration_sec": round(duration, 1),
+                    "modules_run": modules_requested,
+                }
+                hopper.notifier.send_cycle_summary(summary)
         except Exception:
             import traceback
             traceback.print_exc()
+            if hopper and hopper.notifier:
+                hopper.notifier.send_error(
+                    f"Trigger exception on VLAN {vlan_id}"
+                )
         finally:
             if hopper:
                 hopper.teardown_current()
