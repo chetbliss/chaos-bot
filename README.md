@@ -17,6 +17,7 @@ Automated red-team traffic generator for home-lab security monitoring validation
 | `auth_prober` | Failed auth attempts: SSH, RDP, SMB, HTTP basic, Kerberos, LDAP (max 2 per target per protocol per cycle) |
 | `dns_noise` | DGA domains, known-bad lookups, C2 TXT queries |
 | `http_probe` | SQLi/XSS payloads, path traversal, bad user-agents, honeypot paths |
+| `exploit_spray` | CVE exploit payloads: Shellshock, Log4Shell, Spring4Shell, SQLi, command injection, SSRF, XXE, webshells |
 
 ## C2 Web UI
 
@@ -126,6 +127,7 @@ pytest tests/ -v
 
 | Version | Date | Changes |
 |---|---|---|
+| 0.1.6 | 2026-02-09 | New `exploit_spray` module for red team simulation. Sends CVE payloads (Shellshock, Log4Shell, Spring4Shell, SQLi, command injection, XSS, SSRF, XXE, PHP injection, webshell access, malware user-agents) to trigger Suricata/ET Open rules. Configurable intensity (low/medium/high). |
 | 0.1.5 | 2026-02-01 | Apprise notifications for manual trigger (cycle summary on success, error on failure/no hosts). Increased nmap ARP discovery timeout to 90s for /24 subnets. Stale VLAN interface cleanup on hop (prevents crash if previous run left eth1.X behind). |
 | 0.1.4 | 2026-02-01 | Manual trigger hops to selected VLAN and attacks from VLAN IP (not management IP). Nmap ARP sweep discovers live hosts before attacking. Daemon mode also gets host discovery. New `discovery.py` module. Trigger API accepts `vlan_id` instead of `targets`. |
 | 0.1.3 | 2026-02-01 | CIDR target expansion for auth_prober and http_probe (random sample of 5 IPs from /24 subnets). Fixed Ansible handler: git clone now triggers service restart so code changes take effect immediately. |
