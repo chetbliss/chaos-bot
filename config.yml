@@ -76,12 +76,18 @@ modules:
   http_probe:
     enabled: true
     paths:
+      - /.env
+      - /.git/HEAD
       - /admin
       - /wp-login.php
       - /.env
       - /.git/HEAD
       - /api/v1/admin
       - /server-status
+
+  exploit_spray:
+    enabled: true
+    intensity: high
 
 notifications:
   enabled: true

@@ -4,12 +4,14 @@ from chaos_bot.modules.net_scanner import NetScanner
 from chaos_bot.modules.auth_prober import AuthProber
 from chaos_bot.modules.dns_noise import DnsNoise
 from chaos_bot.modules.http_probe import HttpProbe
+from chaos_bot.modules.exploit_spray import ExploitSpray
 
 MODULES = {
     "net_scanner": NetScanner,
     "auth_prober": AuthProber,
     "dns_noise": DnsNoise,
     "http_probe": HttpProbe,
+    "exploit_spray": ExploitSpray,
 }
 
 
